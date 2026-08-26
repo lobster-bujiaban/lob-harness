@@ -248,6 +248,7 @@ export class OpenAiCompatLlm implements LlmClient {
     let pendingUsage: TokenUsage | undefined;
     let pendingFinish: LlmStreamChunk & { type: "finish" } | undefined;
     let emittedContent = false;
+    let emittedText = false;
     const toolArguments = new Map<number, { id?: string; name?: string; arguments: string }>();
     for await (const payload of parseSse(response.body, { allowEof: true })) {
       throwIfAborted(signal);
@@ -274,6 +275,7 @@ export class OpenAiCompatLlm implements LlmClient {
         const content = choice.delta?.content;
         if (typeof content === "string" && content.length > 0) {
           emittedContent = true;
+          emittedText = true;
           yield { type: "text_delta", text: content };
         }
         for (const call of choice.delta?.tool_calls ?? []) {
@@ -318,14 +320,15 @@ export class OpenAiCompatLlm implements LlmClient {
         return false;
       }
     });
-    if (pendingFinish === undefined && !completeToolCalls) {
+    const gptTextEof = /^gpt(?:[-_.]|$)/iu.test(this.model) && emittedText && toolArguments.size === 0;
+    if (pendingFinish === undefined && !completeToolCalls && !gptTextEof) {
       throw new Error("SSE stream ended without [DONE]");
     }
     if (pendingUsage !== undefined) yield { type: "usage", usage: pendingUsage };
     if (!emittedContent) {
       throw new HarnessError(`${this.providerName} returned an empty message`, "EMPTY_RESPONSE");
     }
-    yield pendingFinish ?? { type: "finish", reason: "tool_calls" };
+    yield pendingFinish ?? { type: "finish", reason: completeToolCalls ? "tool_calls" : "stop" };
   }
 }
 

@@ -331,6 +331,21 @@ test("兼容工具调用完整但未发送 DONE 的 GPT SSE", async () => {
   expect(chunks.at(-1)).toEqual({ type: "finish", reason: "tool_calls" });
 });
 
+test("兼容 GPT 最终文本完整但未发送 DONE 的 SSE", async () => {
+  const fetchImpl: FetchLike = async () => new Response(
+    `data: ${JSON.stringify({ choices: [{ delta: { content: "共有 168 份简历。" }, finish_reason: null }] })}\n\n`,
+    { status: 200, headers: { "content-type": "text/event-stream" } },
+  );
+  const llm = new OpenAiCompatLlm({ apiKey: "test-key", model: "gpt-5.6-sol", fetchImpl });
+  const chunks = [];
+  for await (const chunk of llm.stream([{ role: "user", content: "有几份简历" }], [])) chunks.push(chunk);
+
+  expect(chunks).toEqual([
+    { type: "text_delta", text: "共有 168 份简历。" },
+    { type: "finish", reason: "stop" },
+  ]);
+});
+
 test("适配器规范化限流、上下文溢出和空响应", async () => {
   const cases: Array<{ response: Response; code: string }> = [
     { response: jsonResponse({ error: { message: "slow down" } }, 429), code: "RATE_LIMITED" },
