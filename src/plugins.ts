@@ -367,11 +367,11 @@ function resolveConfig(id: string, config: Record<string, unknown>): Record<stri
     if (typeof creatorName !== "string" || creatorName.trim() !== "虾哥不加班") {
       throw new Error("hyperframes-video.creatorName 必须是虾哥不加班");
     }
-    const logoPath = config.logoPath ?? "web/lobster-logo.png";
-    if (typeof logoPath !== "string" || logoPath !== "web/lobster-logo.png") {
-      throw new Error("hyperframes-video.logoPath 必须是 web/lobster-logo.png");
+    const logoPath = config.logoPath ?? "";
+    if (typeof logoPath !== "string" || logoPath.startsWith("/") || logoPath.includes("..") || /二维码|扫码|\bqr(?:code)?\b/iu.test(logoPath)) {
+      throw new Error("hyperframes-video.logoPath 必须是工作区内的相对图片路径，且不能是二维码");
     }
-    return { renderTimeoutMs, voiceModel: voiceModel.trim(), voices: [...voices], creatorName, logoPath };
+    return { renderTimeoutMs, voiceModel: voiceModel.trim(), voices: [...voices], creatorName, logoPath: logoPath.trim() };
   }
   return structuredClone(config);
 }

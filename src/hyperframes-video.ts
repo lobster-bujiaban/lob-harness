@@ -85,7 +85,7 @@ export function installHyperframesVideo(
   const disposers = [
     registry.register({
       name: "video_analyze_source",
-      description: "扫描当前工作区的完整项目，默认包含 README、manifest、源码和测试，并排除 videos/tmp/依赖与构建目录；返回项目身份、GitHub 归属和有界源码证据。",
+      description: "扫描当前工作区的完整开源项目，默认包含 README、manifest、源码和测试，并排除 videos/tmp/依赖与构建目录；返回项目身份、GitHub 归属、Logo 候选和有界源码证据。",
       parameters: {
         type: "object",
         properties: {
@@ -109,7 +109,7 @@ export function installHyperframesVideo(
         type: "object",
         properties: {
           outputDir: { type: "string", description: "工作区内的输出根目录，例如 videos；插件自动创建 <outputDir>/<plan.slug> 工程目录" },
-          plan: { type: "object", description: "视频方案：slug、projectName、projectIdentity、sourcePath、搜索与收藏字段、scenes。技术场景的 evidence 必须含 file/lineStart/lineEnd/claim/kind；每个场景含 id/title/narration/duration，可选 bullets/template/audioPath。作者、GitHub 地址和 web/lobster-logo.png 由插件从当前项目自动注入；禁止任何二维码或扫码内容。" },
+          plan: { type: "object", description: "当前开源仓库的宣传视频方案：slug、projectName、projectIdentity、sourcePath、搜索与收藏字段、scenes。用项目价值、核心能力、差异点、实现证据、适用人群和 GitHub 行动引导组织内容。技术事实的 evidence 必须含 file/lineStart/lineEnd/claim/kind。作者和 GitHub 地址由插件自动注入，Logo 从当前项目自动发现或由 logoPath 指定；禁止二维码。" },
         },
         required: ["outputDir", "plan"],
         additionalProperties: false,
@@ -121,7 +121,7 @@ export function installHyperframesVideo(
         rejectQrPromotion(rawPlan);
         const plan = await applyProjectBranding(root, parsePlan(rawPlan), {
           creatorName: options.creatorName ?? "虾哥不加班",
-          logoPath: options.logoPath ?? "web/lobster-logo.png",
+          logoPath: options.logoPath,
         });
         const output = resolveInside(outputRoot, plan.slug);
         const result = await createHyperframesProject(root, output, plan, context.signal);
@@ -252,10 +252,10 @@ export async function analyzeSource(path: string, signal: AbortSignal, exclude: 
     projectIdentity: metadata.description,
     repositoryUrl: metadata.repositoryUrl,
     creatorName: "虾哥不加班",
-    logoPath: "web/lobster-logo.png",
+    logoCandidates: await findLogoCandidates(path),
     excludedDirectories: [...ignored].sort(),
     evidence,
-    instruction: "先用 README、manifest 和入口文件确认项目身份，再围绕一个属于该项目自身的重要工程问题组织内容。事实结论必须绑定真实文件与行号；风险设想明确标记 hypothetical。第一帧显示项目名、虾哥公开研发、GitHub 仓库和 web/lobster-logo.png；禁止二维码、扫码引导和其他 Logo。",
+    instruction: "目标是宣传当前开源仓库，让观众理解它解决什么问题、为什么值得使用，并去 GitHub 查看。先确认项目身份与仓库归属，再选择最能体现项目价值的叙事主线；可以讲核心能力、效果、使用场景或关键机制，不强制包装成单一问题。源码证据用于支撑卖点，禁止夸大。第一帧显示项目名、作者和 GitHub 仓库，结尾明确引导访问 GitHub；禁止二维码。",
   };
 }
 
@@ -268,20 +268,20 @@ export async function createHyperframesProject(root: string, output: string, pla
       status: "needs_revision",
       failedChecks,
       contentChecks: checks,
-      next: "补齐项目身份、GitHub 归属、虾哥品牌、源码证据或画面类型后重新创建。",
+      next: "补齐当前项目身份、GitHub 归属、源码证据或画面类型后重新创建。",
     };
   }
   const sourceRoot = resolveInside(root, plan.sourcePath!);
   const hydratedScenes = await hydrateEvidence(sourceRoot, plan.scenes, signal);
-  const logoSource = resolveInside(root, plan.logoPath!);
-  const logoInfo = await stat(logoSource).catch(() => undefined);
-  if (!logoInfo?.isFile()) throw new ToolError(`项目 Logo 不存在：${plan.logoPath}`, "VIDEO_BRAND_LOGO_MISSING");
+  const logoSource = plan.logoPath === undefined ? undefined : resolveInside(root, plan.logoPath);
+  const logoInfo = logoSource === undefined ? undefined : await stat(logoSource).catch(() => undefined);
+  if (logoSource !== undefined && !logoInfo?.isFile()) throw new ToolError(`项目 Logo 不存在：${plan.logoPath}`, "VIDEO_BRAND_LOGO_MISSING");
   await mkdir(join(output, "compositions", "frames"), { recursive: true });
   await mkdir(join(output, "assets", "voice"), { recursive: true });
   await mkdir(join(output, "assets", "brand"), { recursive: true });
   await mkdir(join(output, "renders"), { recursive: true });
-  const normalizedLogoPath = `assets/brand/lob-harness-logo${extname(logoSource) || ".png"}`;
-  await copyFile(logoSource, join(output, normalizedLogoPath));
+  const normalizedLogoPath = logoSource === undefined ? undefined : `assets/brand/project-logo${extname(logoSource) || ".png"}`;
+  if (logoSource !== undefined && normalizedLogoPath !== undefined) await copyFile(logoSource, join(output, normalizedLogoPath));
   const normalizedScenes: VideoScene[] = [];
   for (let index = 0; index < hydratedScenes.length; index += 1) {
     signal.throwIfAborted();
@@ -294,7 +294,11 @@ export async function createHyperframesProject(root: string, output: string, pla
     }
     normalizedScenes.push({ ...scene, ...(audio === undefined ? {} : { audioPath: audio }) });
   }
-  const normalized = { ...plan, logoPath: normalizedLogoPath, scenes: normalizedScenes };
+  const normalized = {
+    ...plan,
+    ...(normalizedLogoPath === undefined ? {} : { logoPath: normalizedLogoPath }),
+    scenes: normalizedScenes,
+  };
   await Promise.all([
     writeFile(join(output, "video-plan.json"), `${JSON.stringify(normalized, null, 2)}\n`),
     writeFile(join(output, "hyperframes.json"), `${JSON.stringify(hyperframesConfig(), null, 2)}\n`),
@@ -523,7 +527,7 @@ function renderFrame(plan: HyperframesPlan, scene: VideoScene, index: number): s
   const source = scene.sourceExcerpt === undefined ? "" : `<div class="source"><div class="source-label">${escapeHtml(scene.sourceLabel ?? "SOURCE")}</div><pre>${escapeHtml(scene.sourceExcerpt)}</pre><p>${escapeHtml(scene.evidence?.[0]?.claim ?? "")}</p></div>`;
   const panel = source || `<ul>${bullets}</ul>`;
   const repository = repositoryLabel(plan.repositoryUrl ?? "");
-  const firstBadge = index === 0 ? `<div class="first-badge">虾哥公开研发 · OPEN SOURCE</div>` : "";
+  const firstBadge = index === 0 ? `<div class="first-badge">${escapeHtml(plan.creatorName ?? "虾哥不加班")}公开研发 · OPEN SOURCE</div>` : "";
   const endCard = index === plan.scenes.length - 1
     ? `<div class="end-card"><strong>GitHub 搜索</strong><span>${escapeHtml(repository)}</span><em>关注「${escapeHtml(plan.creatorName ?? "虾哥不加班")}」</em></div>`
     : "";
@@ -558,7 +562,7 @@ function contentChecks(plan: HyperframesPlan) {
     projectVisibility: firstSceneText.includes(plan.projectName.toLowerCase()),
     repositoryVisible: /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/?$/u.test(plan.repositoryUrl ?? ""),
     creatorVisible: plan.creatorName === "虾哥不加班",
-    brandLogoPresent: plan.logoPath === "web/lobster-logo.png" || plan.logoPath?.startsWith("assets/brand/lob-harness-logo") === true,
+    brandLogoPresent: plan.logoPath !== undefined,
     qrCodeAbsent: !containsQrPromotion(plan),
     evidenceFiles: evidenceFiles.size,
     evidenceCoverage: technicalScenes.length === 0 ? 1 : Number((evidencedTechnicalScenes.length / technicalScenes.length).toFixed(2)),
@@ -575,19 +579,48 @@ function packageConfig(slug: string) { return { name: slug, private: true, type:
 async function applyProjectBranding(
   root: string,
   plan: HyperframesPlan,
-  branding: { creatorName: string; logoPath: string },
+  branding: { creatorName: string; logoPath?: string },
 ): Promise<HyperframesPlan> {
   const metadata = await readProjectMetadata(root);
   if (metadata.repositoryUrl === undefined) {
     throw new ToolError("无法从 package.json 或 Git remote 确认 GitHub 仓库地址", "VIDEO_REPOSITORY_UNKNOWN");
   }
+  const discoveredLogo = (await findLogoCandidates(root))[0];
+  const logoPath = plan.logoPath ?? (branding.logoPath?.trim() || undefined) ?? discoveredLogo;
   return {
     ...plan,
     sourcePath: plan.sourcePath ?? ".",
     creatorName: branding.creatorName,
     repositoryUrl: metadata.repositoryUrl,
-    logoPath: branding.logoPath,
+    ...(logoPath === undefined ? {} : { logoPath }),
   };
+}
+
+async function findLogoCandidates(root: string): Promise<string[]> {
+  const candidates: string[] = [];
+  async function walk(current: string, depth: number): Promise<void> {
+    if (depth > 3 || candidates.length >= 20) return;
+    const entries = await readdir(current, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (!IGNORED_DIRECTORIES.has(entry.name) && !entry.name.startsWith(".")) await walk(join(current, entry.name), depth + 1);
+        continue;
+      }
+      if (!entry.isFile() || !/\.(?:png|jpe?g|svg|webp)$/iu.test(entry.name)) continue;
+      const rel = relative(root, join(current, entry.name));
+      if (/(?:^|[-_.])(logo|icon|brand)(?:[-_.]|$)/iu.test(entry.name) || /(?:^|\/)(?:logo|icons?|branding)(?:\/|$)/iu.test(rel)) candidates.push(rel);
+    }
+  }
+  await walk(root, 0);
+  return candidates.sort((a, b) => logoScore(b) - logoScore(a) || a.localeCompare(b));
+}
+
+function logoScore(path: string): number {
+  const name = basename(path).toLowerCase();
+  if (name === "logo.png" || name === "logo.svg") return 100;
+  if (name.includes("logo")) return 80;
+  if (name.includes("icon")) return 50;
+  return 10;
 }
 
 async function readProjectMetadata(path: string): Promise<{ name?: string; description?: string; repositoryUrl?: string }> {
@@ -610,7 +643,7 @@ async function readProjectMetadata(path: string): Promise<{ name?: string; descr
   } catch {
     gitRemote = undefined;
   }
-  const repositoryUrl = normalizeRepositoryUrl(packageRepositoryUrl ?? gitRemote);
+  const repositoryUrl = normalizeRepositoryUrl(packageRepositoryUrl) ?? normalizeRepositoryUrl(gitRemote);
   return {
     ...(typeof packageValue?.name === "string" ? { name: packageValue.name } : {}),
     ...(typeof packageValue?.description === "string" ? { description: packageValue.description } : {}),
@@ -673,12 +706,12 @@ function evidenceArray(value: unknown, label: string): SourceEvidence[] {
 
 function hardCheckFailures(checks: ReturnType<typeof contentChecks>): string[] {
   const required: Array<keyof typeof checks> = [
-    "searchableQuestion", "keywords", "saveValue", "seriesContinuation", "projectIdentity",
-    "projectVisibility", "repositoryVisible", "creatorVisible", "brandLogoPresent", "qrCodeAbsent", "visualVariety",
+    "keywords", "saveValue", "projectIdentity", "projectVisibility", "repositoryVisible",
+    "creatorVisible", "qrCodeAbsent", "visualVariety",
   ];
   const failed = required.filter((key) => checks[key] !== true).map(String);
   if (checks.evidenceFiles < 2) failed.push("evidenceFiles");
-  if (checks.evidenceCoverage < 1) failed.push("evidenceCoverage");
+  if (checks.evidenceCoverage < 0.5) failed.push("evidenceCoverage");
   return failed;
 }
 
