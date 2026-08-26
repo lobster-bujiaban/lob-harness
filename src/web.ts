@@ -256,7 +256,7 @@ export async function handleRequest(
       sendJson(res, 200, { workspaceRoot });
     } catch (error) {
       const message = error instanceof Error ? error.message : "directory picker failed";
-      if (message.includes("User canceled")) {
+      if (/User canceled|用户已取消|\(-128\)/i.test(message)) {
         sendJson(res, 200, { cancelled: true });
       } else {
         sendJson(res, 400, { error: message });

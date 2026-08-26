@@ -4,6 +4,9 @@ const sessionTitle = document.querySelector("#session-title");
 const mainStatus = document.querySelector("#main-status");
 const workspaceRoot = document.querySelector("#workspace-root");
 const saveWorkspace = document.querySelector("#save-workspace");
+const workspacePicker = document.querySelector("#workspace-picker");
+const workspacePickerLabel = document.querySelector("#workspace-picker-label");
+const workspacePickerMenu = document.querySelector("#workspace-picker-menu");
 const transcript = document.querySelector("#transcript");
 const stage = document.querySelector(".stage");
 const main = document.querySelector("#main");
@@ -210,6 +213,59 @@ const removedWorkspaces = new Set(JSON.parse(
 function saveWorkspacePreferences() {
   localStorage.setItem("lob-harness.workspace-aliases", JSON.stringify(workspaceAliases));
   localStorage.setItem("lob-harness.removed-workspaces", JSON.stringify([...removedWorkspaces]));
+}
+
+function workspaceChoices() {
+  const roots = new Set(listedSessions
+    .map((session) => session.workspaceRoot)
+    .filter((root) => root && !removedWorkspaces.has(root)));
+  if (selectedWorkspace && !removedWorkspaces.has(selectedWorkspace)) roots.add(selectedWorkspace);
+  return [...roots].sort((left, right) =>
+    (workspaceAliases[left] ?? pathName(left)).localeCompare(workspaceAliases[right] ?? pathName(right), "zh-CN")
+  );
+}
+
+function renderWorkspacePicker() {
+  workspacePickerLabel.textContent = selectedWorkspace
+    ? (workspaceAliases[selectedWorkspace] ?? pathName(selectedWorkspace))
+    : "未分组";
+  const choices = [{ root: "", name: "未分组" }, ...workspaceChoices().map((root) => ({
+    root,
+    name: workspaceAliases[root] ?? pathName(root),
+  }))];
+  workspacePickerMenu.replaceChildren(...choices.map(({ root, name }) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "workspace-picker-item";
+    item.setAttribute("role", "menuitemradio");
+    item.setAttribute("aria-checked", selectedWorkspace === root ? "true" : "false");
+    item.innerHTML = `<span class="workspace-picker-folder">${svgIcon("folder")}</span><span class="workspace-picker-name"></span><span class="workspace-picker-check">✓</span>`;
+    item.querySelector(".workspace-picker-name").textContent = name;
+    item.title = root || "不指定工作区分组";
+    item.addEventListener("click", () => {
+      selectedWorkspace = root;
+      workspaceRoot.value = root;
+      closeWorkspacePicker();
+      renderWorkspacePicker();
+    });
+    return item;
+  }));
+  const divider = document.createElement("div");
+  divider.className = "workspace-picker-divider";
+  const add = document.createElement("button");
+  add.type = "button";
+  add.className = "workspace-picker-add";
+  add.innerHTML = `<span>${svgIcon("plus")}</span><span>添加工作区…</span>`;
+  add.addEventListener("click", () => {
+    closeWorkspacePicker();
+    addWorkspace.click();
+  });
+  workspacePickerMenu.append(divider, add);
+}
+
+function closeWorkspacePicker() {
+  workspacePickerMenu.hidden = true;
+  workspacePicker.setAttribute("aria-expanded", "false");
 }
 
 function scrollMainToBottom(options = {}) {
@@ -798,6 +854,8 @@ function clearSessionView() {
   mainStatus.textContent = "";
   mainStatus.classList.remove("error");
   workspaceRoot.value = "";
+  selectedWorkspace = "";
+  renderWorkspacePicker();
   renderTranscript([]);
   updateComposer();
 }
@@ -1310,6 +1368,7 @@ async function readTurnStream(response, target) {
 function renderSession(data) {
   workspaceRoot.value = data.workspaceRoot ?? "";
   selectedWorkspace = data.workspaceRoot ?? selectedWorkspace;
+  renderWorkspacePicker();
   updateWorkspaceControls();
   mainStatus.textContent = `${data.events.length} 条原始事件`;
   mainStatus.classList.remove("error");
@@ -1539,6 +1598,7 @@ async function refreshSessions(select) {
   const sessions = await res.json();
   if (!res.ok) throw new Error(sessions.error ?? "列表加载失败");
   listedSessions = sessions;
+  renderWorkspacePicker();
   tmpSessionCount = sessions.filter((session) => session.source === "tmp").length;
   if (sessions.length === 0) {
     sessionStatus.textContent = "还没有会话。点「新建会话」开始。";
@@ -1799,18 +1859,22 @@ newSession.addEventListener("click", () => {
 addWorkspace.addEventListener("click", async () => {
   if (managingSessions) return;
   addWorkspace.disabled = true;
+  sessionStatus.classList.remove("error");
   sessionStatus.textContent = "正在选择工作区…";
   try {
     const res = await fetch("/api/workspaces/pick", { method: "POST" });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error ?? "无法打开目录选择器");
     if (data.cancelled) {
+      sessionStatus.classList.remove("error");
       sessionStatus.textContent = `${listedSessions.length} 个会话`;
       return;
     }
     selectedWorkspace = data.workspaceRoot;
+    workspaceRoot.value = selectedWorkspace;
     removedWorkspaces.delete(selectedWorkspace);
     saveWorkspacePreferences();
+    renderWorkspacePicker();
     await createSession(selectedWorkspace);
   } catch (err) {
     sessionStatus.textContent = err instanceof Error ? err.message : "无法添加工作区";
@@ -1818,6 +1882,22 @@ addWorkspace.addEventListener("click", async () => {
   } finally {
     addWorkspace.disabled = false;
   }
+});
+workspacePicker.addEventListener("click", () => {
+  const opening = workspacePickerMenu.hidden;
+  if (!opening) {
+    closeWorkspacePicker();
+    return;
+  }
+  renderWorkspacePicker();
+  workspacePickerMenu.hidden = false;
+  workspacePicker.setAttribute("aria-expanded", "true");
+});
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".workspace-control")) closeWorkspacePicker();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeWorkspacePicker();
 });
 searchWorkspaces.addEventListener("click", () => {
   workspaceSearchWrap.hidden = !workspaceSearchWrap.hidden;
