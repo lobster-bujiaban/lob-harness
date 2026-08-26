@@ -54,7 +54,7 @@ const baseEntries: readonly ConfigEntry[] = Object.freeze([
   { id: "sandbox-policy", config: { mode: "workspace-write" } },
   { id: "sandbox", config: { provider: "local" } },
   { id: "shell", config: { provider: "sandbox" } },
-  { id: "tools", children: [{ id: "core-tools" }, { id: "workspace-files" }, { id: "workspace-shell" }, { id: "mcp-client", config: { serverName: "demo" } }, { id: "subagent" }, { id: "tool-jobs" }, { id: "tool-goal" }, { id: "hyperframes-video", config: { renderTimeoutMs: 1_800_000 } }] },
+  { id: "tools", children: [{ id: "core-tools" }, { id: "workspace-files" }, { id: "workspace-shell" }, { id: "mcp-client", config: { serverName: "demo" } }, { id: "subagent" }, { id: "tool-jobs" }, { id: "tool-goal" }, { id: "hyperframes-video", config: { renderTimeoutMs: 1_800_000, voiceModel: "cosyvoice-v3-flash", voices: ["longanlang_v3", "longanyang", "loongbella_v3"] } }] },
   { id: "system-prompt" },
   { id: "agent-loop" },
   { id: "agent" },

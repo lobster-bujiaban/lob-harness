@@ -28,6 +28,7 @@ test("插件发现、启停、配置和持久化共同决定工具注册表", as
     "bash",
     "video_analyze_source",
     "video_create_hyperframes",
+    "video_generate_voice",
     "video_render_hyperframes",
   ]);
 
@@ -46,6 +47,7 @@ test("插件发现、启停、配置和持久化共同决定工具注册表", as
     "bash",
     "video_analyze_source",
     "video_create_hyperframes",
+    "video_generate_voice",
     "video_render_hyperframes",
   ]);
   expect(JSON.parse(await readFile(join(directory, "plugins.json"), "utf8"))).toMatchObject({
@@ -69,6 +71,7 @@ test("插件配置在写入前校验", async () => {
   await expect(store.update("hyperframes-video", { config: { renderTimeoutMs: 1 } })).rejects.toThrow(
     "renderTimeoutMs",
   );
+  await expect(store.update("hyperframes-video", { config: { voices: [] } })).rejects.toThrow("voices");
   await expect(store.update("missing", { enabled: true })).rejects.toThrow("unknown plugin");
 });
 
@@ -94,6 +97,7 @@ test("插件可重复 reload，旧贡献先撤销且新注册不重复", async (
     "bash",
     "video_analyze_source",
     "video_create_hyperframes",
+    "video_generate_voice",
     "video_render_hyperframes",
   ]);
   expect((await store.createToolRegistry(directory)).schemas().map((tool) => tool.name)).toEqual([
@@ -101,6 +105,7 @@ test("插件可重复 reload，旧贡献先撤销且新注册不重复", async (
     "bash",
     "video_analyze_source",
     "video_create_hyperframes",
+    "video_generate_voice",
     "video_render_hyperframes",
     "read_file",
     "list_files",

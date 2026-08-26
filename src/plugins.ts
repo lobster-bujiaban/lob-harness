@@ -99,7 +99,7 @@ export const BUILTIN_PLUGINS: readonly PluginManifest[] = Object.freeze([
     id: "hyperframes-video",
     name: "Hyperframes Video",
     description: "把源码摘要和结构化分镜转换为抖音竖版 Hyperframes 工程并渲染 MP4。",
-    tools: ["video_analyze_source", "video_create_hyperframes", "video_render_hyperframes"],
+    tools: ["video_analyze_source", "video_create_hyperframes", "video_generate_voice", "video_render_hyperframes"],
     configurable: true,
     defaultEnabled: true,
   },
@@ -250,6 +250,9 @@ export class PluginStore {
         root: workspaceRoot,
         shell: ctx.shell,
         renderTimeoutMs: config.renderTimeoutMs as number,
+        voiceModel: config.voiceModel as string,
+        voices: config.voices as string[],
+        credentialsPath: join(this.directory, "credentials.json"),
       })), { inject: ["tools", "shell"] });
     const saved = await this.read();
     for (const manifest of BUILTIN_PLUGINS) {
@@ -350,7 +353,15 @@ function resolveConfig(id: string, config: Record<string, unknown>): Record<stri
     if (!Number.isSafeInteger(renderTimeoutMs) || (renderTimeoutMs as number) < 60_000 || (renderTimeoutMs as number) > 3_600_000) {
       throw new Error("hyperframes-video.renderTimeoutMs 必须是 60000～3600000 的整数");
     }
-    return { renderTimeoutMs };
+    const voiceModel = config.voiceModel ?? "cosyvoice-v3-flash";
+    if (typeof voiceModel !== "string" || voiceModel.trim().length === 0) {
+      throw new Error("hyperframes-video.voiceModel 必须是非空字符串");
+    }
+    const voices = config.voices ?? ["longanlang_v3", "longanyang", "loongbella_v3"];
+    if (!Array.isArray(voices) || voices.length === 0 || voices.length > 10 || voices.some((voice) => typeof voice !== "string" || !/^[A-Za-z0-9_-]+$/u.test(voice))) {
+      throw new Error("hyperframes-video.voices 必须是 1～10 个有效音色名称");
+    }
+    return { renderTimeoutMs, voiceModel: voiceModel.trim(), voices: [...voices] };
   }
   return structuredClone(config);
 }

@@ -190,6 +190,17 @@ export async function handleRequest(
     return;
   }
 
+  if (method === "POST" && url.pathname === "/api/settings/llm/models") {
+    try {
+      const body = await readJsonBody(req);
+      if (typeof body !== "object" || body === null || Array.isArray(body)) throw new Error("设置格式无效");
+      sendJson(res, 200, { models: await context.llm.discoverModels(body) });
+    } catch (error) {
+      sendJson(res, 400, { error: error instanceof Error ? error.message : "获取模型目录失败" });
+    }
+    return;
+  }
+
   if (url.pathname === "/api/plugins") {
     if (method === "GET") {
       sendJson(res, 200, { entries: await plugins.list() });

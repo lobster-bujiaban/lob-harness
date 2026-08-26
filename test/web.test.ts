@@ -394,16 +394,20 @@ test("模型设置 API 保存配置但绝不返回明文 Key", async () => {
         baseURL: "https://example.test/v1",
         model: "demo-model",
         apiKey: "web-test-secret-value",
+        dashscopeApiKey: "web-dashscope-secret-value",
       }),
     });
     const raw = await saved.text();
     expect(saved.ok).toBe(true);
     expect(raw).not.toContain("web-test-secret-value");
-    expect(JSON.parse(raw)).toEqual({
+    expect(raw).not.toContain("web-dashscope-secret-value");
+    expect(JSON.parse(raw)).toMatchObject({
       provider: "openai-compatible",
       baseURL: "https://example.test/v1",
       model: "demo-model",
       hasApiKey: true,
+      hasDashscopeApiKey: true,
+      activeProfileId: "default",
     });
   } finally {
     await new Promise<void>((resolve, reject) => {

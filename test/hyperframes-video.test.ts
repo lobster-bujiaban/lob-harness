@@ -2,7 +2,9 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { analyzeSource, createHyperframesProject, type HyperframesPlan } from "../src/hyperframes-video.ts";
+import { analyzeSource, createHyperframesProject, generateVoice, installHyperframesVideo, type HyperframesPlan } from "../src/hyperframes-video.ts";
+import type { ShellProvider } from "../src/shell-service.ts";
+import { ToolRegistry } from "../src/tools.ts";
 
 const plan: HyperframesPlan = {
   slug: "demo-agent",
@@ -41,4 +43,47 @@ test("结构化方案生成完整 Hyperframes 工程", async () => {
   expect(await readFile(join(output, "index.html"), "utf8")).toContain('data-width="1080"');
   expect(await readFile(join(output, "发布文案.md"), "utf8")).toContain("#Agent原理");
   expect(result.contentChecks).toMatchObject({ keywords: true, saveValue: true, seriesContinuation: true });
+});
+
+test("配音按真实时长回写工程并持久化音色", async () => {
+  const root = await mkdtemp(join(tmpdir(), "hyperframes-voice-"));
+  const output = join(root, "video");
+  await createHyperframesProject(root, output, plan, new AbortController().signal);
+  const shell: ShellProvider = {
+    async run() {
+      return { exitCode: 0, signal: null, stdout: "9.65\n", stderr: "", truncated: false, timedOut: false, aborted: false };
+    },
+  };
+  const result = await generateVoice(output, {
+    shell,
+    signal: new AbortController().signal,
+    voices: ["longanyang"],
+    model: "cosyvoice-v3-flash",
+    synthesize: async () => new Uint8Array([1, 2, 3]),
+  });
+  expect(result).toMatchObject({ status: "completed", voice: "longanyang", scenes: 3, duration: 30 });
+  expect(JSON.parse(await readFile(join(output, "audio-meta.json"), "utf8"))).toMatchObject({
+    provider: "cosyvoice",
+    voice: "longanyang",
+  });
+  expect(JSON.parse(await readFile(join(output, "video-plan.json"), "utf8")).scenes[0]).toMatchObject({
+    duration: 10,
+    audioPath: "assets/voice/01.mp3",
+  });
+  expect(await readFile(join(output, "assets", "voice", "01.mp3"))).toEqual(Buffer.from([1, 2, 3]));
+});
+
+test("配音文本外发没有审批通道时拒绝执行", async () => {
+  const root = await mkdtemp(join(tmpdir(), "hyperframes-voice-approval-"));
+  const output = join(root, "video");
+  await createHyperframesProject(root, output, plan, new AbortController().signal);
+  const registry = new ToolRegistry();
+  installHyperframesVideo(registry, {
+    root,
+    shell: { async run() { throw new Error("不应执行"); } },
+    synthesizeVoice: async () => { throw new Error("不应外发"); },
+  });
+  const result = await registry.execute("video_generate_voice", { projectDir: "video" }, new AbortController().signal);
+  expect(result).toMatchObject({ isError: true, error: { code: "DENIED" } });
+  expect(result.output).toContain("no approval channel is available");
 });

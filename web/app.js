@@ -36,6 +36,22 @@ const llmBaseURL = document.querySelector("#llm-base-url");
 const llmModel = document.querySelector("#llm-model");
 const llmApiKey = document.querySelector("#llm-api-key");
 const keyError = document.querySelector("#key-error");
+const dashscopeApiKey = document.querySelector("#dashscope-api-key");
+const clearDashscopeApiKey = document.querySelector("#clear-dashscope-api-key");
+const dashscopeKeyError = document.querySelector("#dashscope-key-error");
+const dashscopeCredentialDot = document.querySelector("#dashscope-credential-dot");
+const dashscopeCredentialLabel = document.querySelector("#dashscope-credential-label");
+const modelProfilesOverview = document.querySelector("#model-profiles-overview");
+const modelProfilesList = document.querySelector("#model-profiles-list");
+const modelProfileEditor = document.querySelector("#model-profile-editor");
+const modelProfileId = document.querySelector("#model-profile-id");
+const modelProfileName = document.querySelector("#model-profile-name");
+const addCatalogProvider = document.querySelector("#add-catalog-provider");
+const addCustomProvider = document.querySelector("#add-custom-provider");
+const cancelModelEditor = document.querySelector("#cancel-model-editor");
+const providerCatalog = document.querySelector("#provider-catalog");
+const discoverModels = document.querySelector("#discover-models");
+const addManualModel = document.querySelector("#add-manual-model");
 const credentialDot = document.querySelector("#credential-dot");
 const credentialLabel = document.querySelector("#credential-label");
 const settingsStatus = document.querySelector("#settings-status");
@@ -93,6 +109,15 @@ const pluginSearch = pluginsPanel.querySelector("#plugin-search");
 const pluginList = pluginsPanel.querySelector(".plugin-list");
 const pluginCount = pluginsPanel.querySelector(".plugin-count span");
 let pluginEntries = [];
+let creatingModelProfile = false;
+const MODEL_PROVIDER_CATALOG = {
+  deepseek: { name: "DeepSeek", baseURL: "https://api.deepseek.com", model: "deepseek-chat" },
+  openai: { name: "OpenAI", baseURL: "https://api.openai.com/v1", model: "gpt-4.1-mini" },
+  qwen: { name: "通义千问", baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-plus" },
+  moonshot: { name: "Moonshot", baseURL: "https://api.moonshot.cn/v1", model: "moonshot-v1-8k" },
+  minimax: { name: "MiniMax", baseURL: "https://api.minimax.chat/v1", model: "MiniMax-Text-01" },
+  siliconflow: { name: "硅基流动", baseURL: "https://api.siliconflow.cn/v1", model: "deepseek-ai/DeepSeek-V3" },
+};
 
 const TYPE_LABEL = {
   inbox_inserted: "Inbox 入队",
@@ -469,22 +494,80 @@ function updateWorkspaceControls() {
 
 function renderModelSettings(settings) {
   modelSettings = settings;
-  if (![...modelSelection.options].some((option) => option.value === settings.model)) {
-    modelSelection.add(new Option(settings.model, settings.model));
-  }
-  modelSelection.value = settings.model;
+  const profiles = settings.profiles ?? [{ id: "default", name: settings.model, model: settings.model, baseURL: settings.baseURL, hasApiKey: settings.hasApiKey }];
+  modelSelection.replaceChildren(...profiles.map((profile) => new Option(`${profile.name} · ${profile.model}`, profile.id)));
+  modelSelection.value = settings.activeProfileId ?? profiles[0].id;
   modelSelection.disabled = false;
-  llmBaseURL.value = settings.baseURL;
-  llmModel.value = settings.model;
+  creatingModelProfile = false;
+  modelProfilesOverview.hidden = false;
+  modelProfileEditor.hidden = true;
+  setModelEditorDisabled(true);
+  modelProfilesList.replaceChildren(...profiles.map((profile) => modelProfileCard(profile, profiles.length)));
+  renderDashscopeCredential(settings);
+  updateComposer();
+}
+
+function modelProfileCard(profile, count) {
+  const item = document.createElement("li");
+  item.className = "model-profile-card";
+  const status = profile.hasApiKey ? "已配置" : "缺少密钥";
+  item.innerHTML = `<div><strong></strong><span class="model-provider-tag">${profile.id === "default" ? "内置" : "自定义"}</span><i class="credential-dot"></i><p></p></div><div class="model-card-actions"><button type="button">编辑</button><button type="button" class="text-danger">删除</button></div>`;
+  item.querySelector("strong").textContent = profile.name;
+  item.querySelector("p").textContent = `${profile.model} · ${status}`;
+  item.querySelector(".credential-dot").classList.toggle("configured", profile.hasApiKey);
+  const [edit, remove] = item.querySelectorAll("button");
+  edit.addEventListener("click", () => openModelEditor(profile));
+  remove.disabled = count <= 1;
+  remove.addEventListener("click", () => void removeModelProfile(profile));
+  return item;
+}
+
+function openModelEditor(profile, options = {}) {
+  creatingModelProfile = options.create === true;
+  modelProfilesOverview.hidden = true;
+  modelProfileEditor.hidden = false;
+  setModelEditorDisabled(false);
+  modelProfileId.value = profile.id;
+  modelProfileId.disabled = !creatingModelProfile;
+  providerCatalog.hidden = options.catalog !== true;
+  providerCatalog.previousElementSibling.hidden = providerCatalog.hidden;
+  renderModelProfile(profile);
+}
+
+function setModelEditorDisabled(disabled) {
+  for (const control of modelProfileEditor.querySelectorAll("input,select,button")) control.disabled = disabled;
+}
+
+function renderModelProfile(profile) {
+  if (!profile) return;
+  modelProfileName.value = profile.name;
+  llmBaseURL.value = profile.baseURL;
+  setModelOptions([profile.model], profile.model);
   llmApiKey.value = "";
   llmApiKey.disabled = false;
-  llmApiKey.placeholder = settings.hasApiKey
+  llmApiKey.placeholder = profile.hasApiKey
     ? "已配置——输入新值可替换"
     : "输入 API 密钥";
-  credentialDot.classList.toggle("configured", settings.hasApiKey);
-  credentialLabel.textContent = settings.hasApiKey ? "API 密钥已配置" : "API 密钥缺失";
+  credentialDot.classList.toggle("configured", profile.hasApiKey);
+  credentialLabel.textContent = profile.hasApiKey ? "API 密钥已配置" : "API 密钥缺失";
   keyError.textContent = "";
-  updateComposer();
+}
+
+function setModelOptions(models, selected) {
+  const unique = [...new Set(models.filter((model) => typeof model === "string" && model.length > 0))];
+  llmModel.replaceChildren(...unique.map((model) => new Option(model, model)));
+  if (selected && unique.includes(selected)) llmModel.value = selected;
+}
+
+function renderDashscopeCredential(settings) {
+  dashscopeApiKey.value = "";
+  dashscopeApiKey.placeholder = settings.hasDashscopeApiKey
+    ? "已配置——输入新值可替换"
+    : "输入百炼 API 密钥";
+  clearDashscopeApiKey.checked = false;
+  dashscopeCredentialDot.classList.toggle("configured", settings.hasDashscopeApiKey);
+  dashscopeCredentialLabel.textContent = settings.hasDashscopeApiKey ? "配音密钥已配置" : "配音密钥缺失";
+  dashscopeKeyError.textContent = "";
 }
 
 function apiKeyFailure(value) {
@@ -585,6 +668,12 @@ async function saveModelSettings() {
     llmApiKey.focus();
     return;
   }
+  const dashscopeFailure = apiKeyFailure(dashscopeApiKey.value);
+  if (dashscopeFailure !== "") {
+    dashscopeKeyError.textContent = dashscopeFailure;
+    dashscopeApiKey.focus();
+    return;
+  }
   saveSettings.disabled = true;
   settingsStatus.textContent = "保存中…";
   settingsStatus.classList.remove("error");
@@ -593,10 +682,15 @@ async function saveModelSettings() {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
+        profileId: modelProfileId.value,
+        profileName: modelProfileName.value,
+        createProfile: creatingModelProfile,
         provider: "openai-compatible",
         baseURL: llmBaseURL.value,
         model: llmModel.value,
         apiKey: llmApiKey.value,
+        dashscopeApiKey: dashscopeApiKey.value,
+        clearDashscopeApiKey: clearDashscopeApiKey.checked,
       }),
     });
     const data = await res.json();
@@ -608,6 +702,30 @@ async function saveModelSettings() {
     settingsStatus.classList.add("error");
   } finally {
     saveSettings.disabled = false;
+  }
+}
+
+async function discoverAvailableModels() {
+  const failure = apiKeyFailure(llmApiKey.value);
+  if (failure !== "") { keyError.textContent = failure; return; }
+  discoverModels.disabled = true;
+  settingsStatus.textContent = "正在获取模型目录…";
+  try {
+    const res = await fetch("/api/settings/llm/models", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ profileId: modelProfileId.value, baseURL: llmBaseURL.value, apiKey: llmApiKey.value }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? "获取模型目录失败");
+    const previous = llmModel.value;
+    setModelOptions(data.models, data.models.includes(previous) ? previous : data.models[0]);
+    settingsStatus.textContent = `获取到 ${data.models.length} 个模型，可在模型名称中选择。`;
+  } catch (err) {
+    settingsStatus.textContent = err instanceof Error ? err.message : "获取模型目录失败";
+    settingsStatus.classList.add("error");
+  } finally {
+    discoverModels.disabled = false;
   }
 }
 
@@ -1641,6 +1759,53 @@ cancelSettings.addEventListener("click", dismissModelSettings);
 llmApiKey.addEventListener("input", () => {
   keyError.textContent = apiKeyFailure(llmApiKey.value);
 });
+dashscopeApiKey.addEventListener("input", () => {
+  dashscopeKeyError.textContent = apiKeyFailure(dashscopeApiKey.value);
+  if (dashscopeApiKey.value.length > 0) clearDashscopeApiKey.checked = false;
+});
+async function removeModelProfile(profile) {
+  if (!profile || !confirm(`删除模型配置“${profile.name}”？`)) return;
+  settingsStatus.textContent = "删除中…";
+  try {
+    const res = await fetch("/api/settings/llm", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ deleteProfileId: profile.id }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? "删除模型配置失败");
+    renderModelSettings(data);
+    settingsStatus.textContent = "已删除模型配置。";
+  } catch (err) {
+    settingsStatus.textContent = err instanceof Error ? err.message : "删除模型配置失败";
+    settingsStatus.classList.add("error");
+  }
+}
+providerCatalog.replaceChildren(...Object.entries(MODEL_PROVIDER_CATALOG).map(([id, provider]) => new Option(provider.name, id)));
+providerCatalog.addEventListener("change", () => {
+  const provider = MODEL_PROVIDER_CATALOG[providerCatalog.value];
+  if (!provider) return;
+  modelProfileId.value = providerCatalog.value;
+  modelProfileName.value = provider.name;
+  llmBaseURL.value = provider.baseURL;
+  setModelOptions([provider.model], provider.model);
+});
+addCatalogProvider.addEventListener("click", () => {
+  providerCatalog.value = Object.keys(MODEL_PROVIDER_CATALOG).find((id) => !modelSettings?.profiles?.some((profile) => profile.id === id)) ?? "deepseek";
+  const provider = MODEL_PROVIDER_CATALOG[providerCatalog.value];
+  openModelEditor({ id: providerCatalog.value, ...provider, hasApiKey: false }, { create: true, catalog: true });
+});
+addCustomProvider.addEventListener("click", () => {
+  openModelEditor({ id: `provider-${Date.now()}`, name: "自定义提供方", baseURL: "https://", model: "", hasApiKey: false }, { create: true });
+  modelProfileName.focus();
+});
+cancelModelEditor.addEventListener("click", () => renderModelSettings(modelSettings));
+discoverModels.addEventListener("click", () => void discoverAvailableModels());
+addManualModel.addEventListener("click", () => {
+  const model = prompt("输入模型名称", llmModel.value)?.trim();
+  if (!model) return;
+  setModelOptions([...llmModel.options].map((option) => option.value).concat(model), model);
+});
 settingsForm.addEventListener("submit", (event) => {
   event.preventDefault();
   if (modelPanel.hidden) {
@@ -1650,18 +1815,18 @@ settingsForm.addEventListener("submit", (event) => {
   void saveModelSettings();
 });
 modelSelection.addEventListener("change", async () => {
-  const previous = modelSettings?.model;
+  const previous = modelSettings?.activeProfileId;
   modelSelection.disabled = true;
   try {
     const res = await fetch("/api/settings/llm", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ model: modelSelection.value }),
+      body: JSON.stringify({ activeProfileId: modelSelection.value }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error ?? "切换模型失败");
     renderModelSettings(data);
-    mainStatus.textContent = `已切换到 ${data.model}`;
+    mainStatus.textContent = `已切换到 ${data.profiles?.find((profile) => profile.id === data.activeProfileId)?.name ?? data.model}`;
     mainStatus.classList.remove("error");
   } catch (err) {
     if (previous !== undefined) modelSelection.value = previous;

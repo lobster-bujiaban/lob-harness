@@ -37,10 +37,10 @@ npm run typecheck
 
 ### 模型设置
 
-项目使用 OpenAI-compatible Chat Completions SSE 协议。API 地址、模型名称和 API Key 都在 Web 中管理，每轮请求前重新读取，因此保存后无需重启。
+项目使用 OpenAI-compatible Chat Completions SSE 协议。Web 设置支持多个模型提供方并存；每个配置拥有稳定 ID、显示名称、API 地址、模型名称和独立 API Key。顶部模型选择器切换完整配置，每轮请求前重新读取，因此保存或切换后无需重启。
 
-- 普通配置：`tmp/config/llm-settings.json`
-- 凭据：`tmp/config/credentials.json`
+- 普通配置：`tmp/config/llm-settings.json`（`version: 2`，保存 `activeProfileId` 和 `profiles`）
+- 凭据：`tmp/config/credentials.json`（各模型 Key 保存在 `modelApiKeys`，配音 Key 使用 `dashscopeApiKey`）
 - 设置 API 只返回 `hasApiKey`，不会回传明文密钥
 
 `tmp/` 已忽略，不应把密钥写入代码、文档、会话或 fixture。
@@ -102,7 +102,7 @@ Web 还提供插件启停、配置保存和教学版热重载。热重载会先�
 | 委派 | `subagent` |
 | 后台任务 | `job`、`job_output`、`job_kill` |
 | 会话目标 | `get_goal`、`create_goal`、`complete_goal` |
-| 视频 | `video_analyze_source`、`video_create_hyperframes`、`video_render_hyperframes` |
+| 视频 | `video_analyze_source`、`video_create_hyperframes`、`video_generate_voice`、`video_render_hyperframes` |
 | MCP（启用插件后） | `mcp__demo__ping` |
 
 所有工具统一经过 `preExecute → execute → postExecute`。拒绝、未知工具、执行异常和后置阻断都会写成结构化 `tool_result`，供模型看到，不会直接伪造整个 turn 成功。
@@ -113,10 +113,10 @@ Web 还提供插件启停、配置保存和教学版热重载。热重载会先�
 
 视频方案可填写 `audienceQuestion`、`searchableTitle`、`searchKeywords`、`saveValue` 和 `seriesNext`。插件据此生成搜索友好的发布文案、可收藏价值检查和系列承接。
 
-插件不会自动把旁白文本发送到外部 TTS。需要有声成片时，在场景的 `audioPath` 中提供工作区内的本地音频；创建工具会把音频复制到工程并挂到时间轴。典型调用顺序：
+需要有声成片时，可以在场景的 `audioPath` 中提供工作区内的本地音频，也可以调用 `video_generate_voice`。后者从插件配置的 CosyVoice v3 音色池随机选择一个音色，同一工程再次生成时沿用该音色；API Key 优先读取 `tmp/config/credentials.json` 的 `dashscopeApiKey`，并兼容环境变量 `DASHSCOPE_API_KEY`。由于旁白会发送到阿里云百炼，工具每次执行前都会要求审批。典型调用顺序：
 
 ```text
-video_analyze_source → video_create_hyperframes → video_render_hyperframes
+video_analyze_source → video_create_hyperframes → video_generate_voice → video_render_hyperframes
 ```
 
 源码、输出目录和音频路径都必须位于当前会话工作区内；渲染只向模型返回末尾摘要日志，避免 Hyperframes/FFmpeg 输出占满上下文。
@@ -133,7 +133,7 @@ video_analyze_source → video_create_hyperframes → video_render_hyperframes
 4. 给出 searchableTitle、audienceQuestion、2～8 个 searchKeywords、至少 2 个 saveValue，以及 seriesNext。关键词自然进入标题、口播和字幕，不堆砌。
 5. 每个结论都要能追溯到本地源码；事实不足时只精准读取相关文件。不要编造类名、调用链、性能数据或平台规则。
 6. 画面使用 1080×1920 Hyperframes 竖版工程。每个场景选择合适的 hook、flow、compare、points 或 boundary 表达，不要全片重复同一种版式。
-7. 旁白音频从【本地音频目录，可选】读取，并通过每个场景的 audioPath 挂载；不要擅自把旁白文本发送给外部 TTS。没有音频时先完成视频工程并明确报告缺少的音频清单，不要假装已经生成有声成片。
+7. 有【本地音频目录】时，通过每个场景的 audioPath 挂载；没有时，在取得旁白外发审批后调用 video_generate_voice。默认从插件配置的音色池选择音色并生成分段旁白，再按真实音频时长同步画面和字幕。
 8. 调用 video_create_hyperframes 创建到【输出目录】，检查生成的内容质量结果；不满足搜索、收藏价值、系列承接时先修订方案。
 9. 调用 video_render_hyperframes 完成 check 和 render。最终报告 MP4、发布文案和视频方案的真实路径。
 

@@ -9,6 +9,15 @@ const IGNORED_DIRECTORIES = new Set([".git", ".idea", ".next", ".turbo", ".venv"
 const ENTRY_NAMES = new Set(["README.md", "package.json", "pyproject.toml", "Cargo.toml", "go.mod", "pom.xml", "build.gradle", "requirements.txt"]);
 const MAX_FILES = 2_000;
 const MAX_EVIDENCE = 24;
+const DEFAULT_VOICES = ["longanlang_v3", "longanyang", "loongbella_v3"] as const;
+const DASHSCOPE_TTS_URL = "https://dashscope.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer";
+
+export type VoiceSynthesizer = (request: {
+  text: string;
+  voice: string;
+  model: string;
+  signal: AbortSignal;
+}) => Promise<Uint8Array>;
 
 export type VideoScene = {
   id: string;
@@ -39,9 +48,21 @@ export type HyperframesPlan = {
 
 export function installHyperframesVideo(
   registry: ToolRegistry,
-  options: { root: string; shell: ShellProvider; renderTimeoutMs?: number },
+  options: {
+    root: string;
+    shell: ShellProvider;
+    renderTimeoutMs?: number;
+    voiceModel?: string;
+    voices?: readonly string[];
+    credentialsPath?: string;
+    synthesizeVoice?: VoiceSynthesizer;
+  },
 ): () => void {
   const root = resolve(options.root);
+  const voices = options.voices ?? DEFAULT_VOICES;
+  const disposeVoicePolicy = registry.onPreExecute(async (execution, next) => execution.name === "video_generate_voice"
+    ? { kind: "ask", reason: "将 video-plan.json 中的旁白文本发送到阿里云百炼 CosyVoice 生成音频" }
+    : next());
   const disposers = [
     registry.register({
       name: "video_analyze_source",
@@ -79,6 +100,34 @@ export function installHyperframesVideo(
       },
     }),
     registry.register({
+      name: "video_generate_voice",
+      description: "使用 CosyVoice 为 Hyperframes 工程逐场景生成旁白，按真实音频时长重写视频时间轴。旁白会发送到阿里云百炼，调用前必须审批；API Key 只读取 DASHSCOPE_API_KEY。",
+      parameters: {
+        type: "object",
+        properties: {
+          projectDir: { type: "string", description: "video_create_hyperframes 创建的工作区内项目目录" },
+          voice: { type: "string", description: `可选音色：${voices.join("、")}；省略时首次随机、后续沿用` },
+        },
+        required: ["projectDir"],
+        additionalProperties: false,
+      },
+      executionMode: { kind: "exclusive" },
+      timeoutMs: 900_000,
+      async execute(args, context) {
+        const project = resolveInside(root, requiredString(args, "projectDir"));
+        const requestedVoice = optionalString(args, "voice");
+        const result = await generateVoice(project, {
+          shell: options.shell,
+          signal: context.signal,
+          voices,
+          model: options.voiceModel ?? "cosyvoice-v3-flash",
+          ...(requestedVoice === undefined ? {} : { voice: requestedVoice }),
+          synthesize: options.synthesizeVoice ?? dashscopeSynthesizer(options.credentialsPath),
+        });
+        return JSON.stringify(result, null, 2);
+      },
+    }),
+    registry.register({
       name: "video_render_hyperframes",
       description: "依次执行 Hyperframes check 和 render，并返回抖音 MP4 路径。渲染日志只保留末尾摘要，避免占用上下文。",
       parameters: {
@@ -111,7 +160,7 @@ export function installHyperframesVideo(
       },
     }),
   ];
-  return () => disposers.reverse().forEach((dispose) => dispose());
+  return () => { disposers.reverse().forEach((dispose) => dispose()); disposeVoicePolicy(); };
 }
 
 export async function analyzeSource(path: string, signal: AbortSignal) {
@@ -198,6 +247,138 @@ export async function createHyperframesProject(root: string, output: string, pla
     contentChecks: contentChecks(normalized),
     next: "需要旁白时为每个场景提供 audioPath 后重新创建；然后调用 video_render_hyperframes。",
   };
+}
+
+export async function generateVoice(project: string, options: {
+  shell: ShellProvider;
+  signal: AbortSignal;
+  voices: readonly string[];
+  model: string;
+  voice?: string;
+  synthesize: VoiceSynthesizer;
+}) {
+  if (options.voices.length === 0) throw new ToolError("插件未配置可用音色", "VIDEO_VOICE_CONFIG_INVALID");
+  const planPath = join(project, "video-plan.json");
+  const plan = parsePlan(JSON.parse(await readFile(planPath, "utf8")));
+  const previous = await readVoiceMeta(join(project, "audio-meta.json"));
+  const voice = options.voice ?? previous?.voice ?? options.voices[Math.floor(Math.random() * options.voices.length)]!;
+  if (!options.voices.includes(voice)) {
+    throw new ToolError(`不支持音色 ${voice}；可选：${options.voices.join("、")}`, "VIDEO_VOICE_UNSUPPORTED");
+  }
+  const voiceDir = join(project, "assets", "voice");
+  await mkdir(voiceDir, { recursive: true });
+  const scenes: VideoScene[] = [];
+  const metaScenes: { id: string; path: string; duration: number; characters: number }[] = [];
+  for (let index = 0; index < plan.scenes.length; index += 1) {
+    options.signal.throwIfAborted();
+    const scene = plan.scenes[index]!;
+    const filename = `${String(index + 1).padStart(2, "0")}.mp3`;
+    const relativeAudio = `assets/voice/${filename}`;
+    const absoluteAudio = join(voiceDir, filename);
+    const bytes = await options.synthesize({
+      text: normalizeNarration(scene.narration),
+      voice,
+      model: options.model,
+      signal: options.signal,
+    });
+    if (bytes.byteLength === 0) throw new ToolError(`场景 ${scene.id} 返回空音频`, "VIDEO_VOICE_EMPTY");
+    await writeFile(absoluteAudio, bytes);
+    const duration = Math.max(3, Number(((await probeDuration(options.shell, project, relativeAudio, options.signal)) + 0.35).toFixed(3)));
+    if (duration > 120) throw new ToolError(`场景 ${scene.id} 旁白超过 120 秒，请拆分场景`, "VIDEO_VOICE_TOO_LONG");
+    scenes.push({ ...scene, duration, audioPath: relativeAudio });
+    metaScenes.push({ id: scene.id, path: relativeAudio, duration, characters: scene.narration.length });
+  }
+  const measuredTotal = scenes.reduce((sum, scene) => sum + scene.duration, 0);
+  if (measuredTotal > 1_200) throw new ToolError("旁白总时长超过 20 分钟，请精简或拆分视频", "VIDEO_VOICE_TOO_LONG");
+  if (measuredTotal < 30) {
+    const last = scenes.at(-1)!;
+    const padded = Number((last.duration + 30 - measuredTotal).toFixed(3));
+    scenes[scenes.length - 1] = { ...last, duration: padded };
+    metaScenes[metaScenes.length - 1] = { ...metaScenes.at(-1)!, duration: padded };
+  }
+  const updated = { ...plan, scenes };
+  await Promise.all([
+    writeFile(planPath, `${JSON.stringify(updated, null, 2)}\n`),
+    writeFile(join(project, "audio-meta.json"), `${JSON.stringify({ provider: "cosyvoice", model: options.model, voice, scenes: metaScenes }, null, 2)}\n`),
+    writeFile(join(project, "index.html"), renderIndex(updated)),
+    writeFile(join(project, "compositions", "captions.html"), renderCaptions(updated)),
+    ...scenes.map((scene, index) => writeFile(join(project, "compositions", "frames", `${scene.id}.html`), renderFrame(updated, scene, index))),
+  ]);
+  return {
+    status: "completed",
+    provider: "cosyvoice",
+    model: options.model,
+    voice,
+    scenes: scenes.length,
+    duration: Number(scenes.reduce((sum, scene) => sum + scene.duration, 0).toFixed(3)),
+    audioMeta: join(project, "audio-meta.json"),
+    next: "调用 video_render_hyperframes 生成有声 MP4。",
+  };
+}
+
+function dashscopeSynthesizer(credentialsPath?: string, fetcher: typeof fetch = fetch): VoiceSynthesizer {
+  return async ({ text, voice, model, signal }) => {
+    const apiKey = await readDashscopeApiKey(credentialsPath) ?? process.env.DASHSCOPE_API_KEY?.trim();
+    if (!apiKey) throw new ToolError("缺少 credentials.json.dashscopeApiKey 或环境变量 DASHSCOPE_API_KEY", "VIDEO_VOICE_CREDENTIAL_MISSING");
+    const response = await fetcher(DASHSCOPE_TTS_URL, {
+      method: "POST",
+      signal,
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model, input: { text, voice, format: "mp3", sample_rate: 24_000 } }),
+    });
+    const payload = await response.json().catch(() => undefined) as unknown;
+    if (!response.ok || !isObject(payload)) {
+      throw new ToolError(`CosyVoice 请求失败（HTTP ${response.status}）`, "VIDEO_VOICE_REQUEST_FAILED");
+    }
+    const audioUrl = nestedString(payload, ["output", "audio", "url"]);
+    if (audioUrl === undefined) {
+      const code = typeof payload.code === "string" ? payload.code : "unknown";
+      throw new ToolError(`CosyVoice 未返回音频地址（${code}）`, "VIDEO_VOICE_REQUEST_FAILED");
+    }
+    const audio = await fetcher(audioUrl, { signal });
+    if (!audio.ok) throw new ToolError(`下载旁白失败（HTTP ${audio.status}）`, "VIDEO_VOICE_DOWNLOAD_FAILED");
+    return new Uint8Array(await audio.arrayBuffer());
+  };
+}
+
+async function readDashscopeApiKey(path: string | undefined): Promise<string | undefined> {
+  if (path === undefined) return undefined;
+  try {
+    const value = JSON.parse(await readFile(path, "utf8")) as unknown;
+    if (!isObject(value) || value.version !== 1) throw new Error("invalid credentials");
+    const key = value.dashscopeApiKey;
+    if (key === undefined) return undefined;
+    if (typeof key !== "string" || key.trim().length === 0 || /[\r\n]/u.test(key)) throw new Error("invalid dashscope key");
+    return key.trim();
+  } catch (error) {
+    if (isNodeError(error, "ENOENT")) return undefined;
+    throw new ToolError("credentials.json 中的 dashscopeApiKey 无效", "VIDEO_VOICE_CREDENTIAL_INVALID", { cause: error });
+  }
+}
+
+async function probeDuration(shell: ShellProvider, project: string, path: string, signal: AbortSignal): Promise<number> {
+  const result = await shell.run({
+    command: `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 ${path}`,
+    cwd: project,
+    signal,
+    timeoutMs: 30_000,
+    maxBytes: 2_000,
+  });
+  const duration = Number(result.stdout.trim());
+  if (result.exitCode !== 0 || !Number.isFinite(duration) || duration <= 0) {
+    throw new ToolError(`无法读取 ${path} 时长：${tail(result.stderr || result.stdout)}`, "VIDEO_VOICE_DURATION_FAILED");
+  }
+  return Number(duration.toFixed(3));
+}
+
+async function readVoiceMeta(path: string): Promise<{ voice?: string } | undefined> {
+  try {
+    const value = JSON.parse(await readFile(path, "utf8")) as unknown;
+    return isObject(value) && typeof value.voice === "string" ? { voice: value.voice } : undefined;
+  } catch (error) {
+    if (isNodeError(error, "ENOENT")) return undefined;
+    throw new ToolError("audio-meta.json 格式无效", "VIDEO_VOICE_META_INVALID", { cause: error });
+  }
 }
 
 function parsePlan(value: unknown): HyperframesPlan {
@@ -291,11 +472,15 @@ function hyperframesConfig() { return { $schema: "https://hyperframes.heygen.com
 function packageConfig(slug: string) { return { name: slug, private: true, type: "module", scripts: { dev: `npx --yes hyperframes@${HYPERFRAMES_VERSION} preview`, check: `npx --yes hyperframes@${HYPERFRAMES_VERSION} check`, render: `npx --yes hyperframes@${HYPERFRAMES_VERSION} render --output renders/${slug}.mp4` } }; }
 function resolveInside(root: string, input: string) { const target = resolve(root, input); if (target !== root && !target.startsWith(`${root}${sep}`)) throw new ToolError("路径必须位于当前工作区", "VIDEO_PATH_OUTSIDE_WORKSPACE"); return target; }
 function requiredString(args: unknown, key: string) { return stringValue(isObject(args) ? args[key] : undefined, key); }
+function optionalString(args: unknown, key: string) { const value = isObject(args) ? args[key] : undefined; return value === undefined ? undefined : stringValue(value, key); }
 function objectField(args: unknown, key: string) { if (!isObject(args) || !isObject(args[key])) throw new ToolError(`${key} 必须是对象`, "VIDEO_ARGUMENT_INVALID"); return args[key]; }
 function stringValue(value: unknown, label: string) { if (typeof value !== "string" || value.trim().length === 0) throw new ToolError(`${label} 必须是非空字符串`, "VIDEO_ARGUMENT_INVALID"); return value.trim(); }
 function stringArray(value: unknown, label: string, max: number) { if (!Array.isArray(value) || value.length > max || value.some((item) => typeof item !== "string" || item.trim().length === 0)) throw new ToolError(`${label} 必须是最多 ${max} 个非空字符串`, "VIDEO_PLAN_INVALID"); return value.map((item) => String(item).trim()); }
 function colorValue(value: unknown, label: string) { const color = stringValue(value, label); if (!/^#[0-9a-f]{6}$/iu.test(color)) throw new ToolError(`${label} 必须是六位十六进制颜色`, "VIDEO_PLAN_INVALID"); return color; }
 function booleanValue(value: unknown, label: string) { if (typeof value !== "boolean") throw new ToolError(`${label} 必须是布尔值`, "VIDEO_PLAN_INVALID"); return value; }
+function normalizeNarration(text: string) { return text.replace(/_/gu, " ").replace(/\s+/gu, " ").trim(); }
+function nestedString(value: Record<string, unknown>, path: readonly string[]): string | undefined { let current: unknown = value; for (const key of path) { if (!isObject(current)) return undefined; current = current[key]; } return typeof current === "string" && current.length > 0 ? current : undefined; }
+function isNodeError(error: unknown, code: string) { return isObject(error) && error.code === code; }
 function isObject(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function compact(text: string, max: number) { return text.replace(/\s+/gu, " ").trim().slice(0, max); }
 function escapeHtml(text: string) { return text.replace(/[&<>"']/gu, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[char]!); }
