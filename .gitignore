@@ -5,3 +5,4 @@ tmp/
 !.env.example
 docs/插件清单.md
 videos/
+.npm-cache/
