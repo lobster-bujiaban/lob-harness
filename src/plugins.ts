@@ -252,6 +252,8 @@ export class PluginStore {
         renderTimeoutMs: config.renderTimeoutMs as number,
         voiceModel: config.voiceModel as string,
         voices: config.voices as string[],
+        creatorName: config.creatorName as string,
+        logoPath: config.logoPath as string,
         credentialsPath: join(this.directory, "credentials.json"),
       })), { inject: ["tools", "shell"] });
     const saved = await this.read();
@@ -361,7 +363,15 @@ function resolveConfig(id: string, config: Record<string, unknown>): Record<stri
     if (!Array.isArray(voices) || voices.length === 0 || voices.length > 10 || voices.some((voice) => typeof voice !== "string" || !/^[A-Za-z0-9_-]+$/u.test(voice))) {
       throw new Error("hyperframes-video.voices 必须是 1～10 个有效音色名称");
     }
-    return { renderTimeoutMs, voiceModel: voiceModel.trim(), voices: [...voices] };
+    const creatorName = config.creatorName ?? "虾哥不加班";
+    if (typeof creatorName !== "string" || creatorName.trim() !== "虾哥不加班") {
+      throw new Error("hyperframes-video.creatorName 必须是虾哥不加班");
+    }
+    const logoPath = config.logoPath ?? "web/lobster-logo.png";
+    if (typeof logoPath !== "string" || logoPath !== "web/lobster-logo.png") {
+      throw new Error("hyperframes-video.logoPath 必须是 web/lobster-logo.png");
+    }
+    return { renderTimeoutMs, voiceModel: voiceModel.trim(), voices: [...voices], creatorName, logoPath };
   }
   return structuredClone(config);
 }

@@ -109,7 +109,7 @@ Web 还提供插件启停、配置保存和教学版热重载。热重载会先�
 
 ### 源码转 Hyperframes 视频
 
-内置 `Hyperframes Video` 插件把视频制作收敛为三个高层工具：先对当前工作区内的源码做有界摘要，再由 Agent 生成 3～16 个结构化场景，最后创建并渲染 1080×1920 的 Hyperframes 工程。视频允许 30 秒到 20 分钟，时长由讲透问题所需的信息决定。工程固定使用 `hyperframes@0.7.108`，输出到项目的 `renders/<slug>.mp4`。
+内置 `Hyperframes Video` 插件把视频制作收敛为四个高层工具：先对当前工作区的完整项目做有界摘要，再由 Agent 生成带源码证据的 3～16 个结构化场景，最后创建、配音并渲染 1080×1920 的 Hyperframes 工程。分析默认排除 `videos`、`tmp`、依赖和构建目录。视频允许 30 秒到 20 分钟，时长由讲透问题所需的信息决定。工程固定使用 `hyperframes@0.7.108`，输出到项目的 `renders/<slug>.mp4`。
 
 视频方案可填写 `audienceQuestion`、`searchableTitle`、`searchKeywords`、`saveValue` 和 `seriesNext`。插件据此生成搜索友好的发布文案、可收藏价值检查和系列承接。
 
@@ -124,22 +124,28 @@ video_analyze_source → video_create_hyperframes → video_generate_voice → v
 可直接在选择源码工作区后使用下面的提示词：
 
 ```text
-请把当前工作区中的【源码目录】制作成一条适合抖音发布的源码拆解视频，最终交付 MP4。
+请分析当前工作区的完整项目，制作一条适合抖音发布的 lob-harness 源码拆解视频，最终交付有声 MP4。
+
+输入：
+- 源码范围：当前工作区全部内容
+- 输出根目录：videos
+- 本期工程标识：lob-harness（插件生成到 videos/lob-harness）
+- 项目 GitHub：https://github.com/lobster-bujiaban/lob-harness
+- 项目作者：虾哥不加班
+- 项目 Logo：web/lobster-logo.png
+- 本地音频目录：无
 
 要求：
-1. 先调用 video_analyze_source，只根据源码证据确定一个用户会主动搜索、对工程实践有价值的核心问题；不要把项目功能列表压成视频。
-2. 内容以讲透为优先，不强行限制为短视频。根据问题复杂度选择 3～16 个场景和合理时长，总时长控制在 30 秒～20 分钟。
-3. 开头直接呈现具体问题、损失或反常识判断；正文依次讲清现象、原因、源码主链路、关键机制、适用边界和可执行结论。
-4. 给出 searchableTitle、audienceQuestion、2～8 个 searchKeywords、至少 2 个 saveValue，以及 seriesNext。关键词自然进入标题、口播和字幕，不堆砌。
-5. 每个结论都要能追溯到本地源码；事实不足时只精准读取相关文件。不要编造类名、调用链、性能数据或平台规则。
-6. 画面使用 1080×1920 Hyperframes 竖版工程。每个场景选择合适的 hook、flow、compare、points 或 boundary 表达，不要全片重复同一种版式。
-7. 有【本地音频目录】时，通过每个场景的 audioPath 挂载；没有时，在取得旁白外发审批后调用 video_generate_voice。默认从插件配置的音色池选择音色并生成分段旁白，再按真实音频时长同步画面和字幕。
-8. 调用 video_create_hyperframes 创建到【输出目录】，检查生成的内容质量结果；不满足搜索、收藏价值、系列承接时先修订方案。
-9. 调用 video_render_hyperframes 完成 check 和 render。最终报告 MP4、发布文案和视频方案的真实路径。
-
-源码目录：【例如 src】
-输出目录：【例如 videos/lob-harness】
-本地音频目录：【例如 narration；没有则写“无”】
+1. 先调用 `video_analyze_source`，不传 path，默认分析当前工作区全部内容。先根据 README、package.json、入口文件和 Git remote 确认 lob-harness 是什么，再选择一个属于本项目自身、用户会主动搜索且有工程价值的核心问题；不要把通用 Agent 安全话题或功能列表当成项目拆解。
+2. 方案必须填写 `slug: "lob-harness"`、`projectName: "lob-harness"`、`projectIdentity`、`sourcePath: "."`、searchableTitle、audienceQuestion、2～8 个 searchKeywords、至少 2 个 saveValue 和 seriesNext。第一幕的标题或口播必须明确出现 `lob-harness`。
+3. 每个技术场景必须提供 `evidence`，每条包含真实的 `file`、`lineStart`、`lineEnd`、`claim` 和 `kind`。kind 只能是 fact、boundary 或 hypothetical；风险设想不得写成已经发生的事实。至少引用 2 个相互关联的源码文件，单条证据不超过 40 行。
+4. 只陈述源码能够证明的事实。禁止把可选配置写成默认启用、把仅限制写入描述成全面隔离，也禁止使用“完全防住”“任何密钥”“绝不会”等超出证据的表达。
+5. 正文依次讲清项目定位、现象、源码主链路、关键机制、适用边界和可执行结论。根据复杂度选择 3～16 个场景，总时长 30 秒～20 分钟，并至少使用 3 种 hook、flow、compare、points、boundary 画面类型。
+6. 第一帧必须出现项目 Logo、`lob-harness`、`虾哥公开研发` 和 `github.com/lobster-bujiaban/lob-harness`；全片保留项目 Logo、`虾哥不加班` 和 GitHub 文字角标；结尾引导用户在 GitHub 搜索 `lobster-bujiaban/lob-harness` 并关注“虾哥不加班”。
+7. 品牌视觉只允许使用当前仓库的 `web/lobster-logo.png`。严禁二维码、扫码引导、二维码字段和其他 Logo。
+8. 调用 `video_create_hyperframes`，传入 `outputDir: "videos"`；插件按 slug 自动创建 `videos/lob-harness`。如果返回 `needs_revision` 或任一硬检查失败，必须修订方案后重新创建，不能继续渲染。
+9. 当前没有本地音频；取得本次旁白文本外发审批后调用 `video_generate_voice`。审批不可用、配音失败或任何场景缺少音频时，不得声称交付完成。
+10. 调用 `video_render_hyperframes` 完成 check 和 render。只有工具真实返回非空 MP4 且 audioScenes 等于 totalScenes 时才算完成；最终报告 MP4、文件大小、发布文案、视频方案和源码证据清单的真实路径。
 ```
 
 连续 `parallel` 工具最多并发 4 个；`exclusive` 工具构成双向 barrier。执行可以乱序完成，但结果按模型调用顺序写入。工具还可声明超时，超时后等待 executor 协作式停稳再返回 `TOOL_TIMEOUT`。
