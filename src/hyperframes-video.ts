@@ -109,7 +109,7 @@ export function installHyperframesVideo(
       parameters: {
         type: "object",
         properties: {
-          outputDir: { type: "string", description: "工作区内的输出根目录，例如 videos；插件自动创建 <outputDir>/<plan.slug> 工程目录" },
+          outputDir: { type: "string", description: "工作区内的工程目录，例如 videos；Hyperframes 工程直接写在该目录下，不再套一层 slug" },
           plan: { type: "object", description: "当前开源仓库的宣传视频方案：slug、projectName、projectIdentity、sourcePath、搜索与收藏字段、scenes。用项目价值、核心能力、差异点、实现证据、适用人群和 GitHub 行动引导组织内容。技术事实的 evidence 必须含 file/lineStart/lineEnd/claim/kind。作者和 GitHub 地址由插件自动注入，Logo 从当前项目自动发现或由 logoPath 指定；禁止二维码。" },
         },
         required: ["outputDir", "plan"],
@@ -117,14 +117,13 @@ export function installHyperframesVideo(
       },
       executionMode: { kind: "exclusive" },
       async execute(args, context) {
-        const outputRoot = resolveInside(root, requiredString(args, "outputDir"));
+        const output = resolveInside(root, requiredString(args, "outputDir"));
         const rawPlan = objectField(args, "plan");
         rejectQrPromotion(rawPlan);
         const plan = await applyProjectBranding(root, parsePlan(rawPlan), {
           creatorName: options.creatorName ?? "虾哥不加班",
           logoPath: options.logoPath,
         });
-        const output = resolveInside(outputRoot, plan.slug);
         const result = await createHyperframesProject(root, output, plan, context.signal);
         return JSON.stringify(result, null, 2);
       },
@@ -135,7 +134,7 @@ export function installHyperframesVideo(
       parameters: {
         type: "object",
         properties: {
-          projectDir: { type: "string", description: "video_create_hyperframes 创建的工作区内项目目录" },
+          projectDir: { type: "string", description: "Hyperframes 工程目录，例如 videos" },
           voice: { type: "string", description: `可选音色：${voices.join("、")}；省略时首次随机、后续沿用` },
         },
         required: ["projectDir"],
@@ -163,7 +162,7 @@ export function installHyperframesVideo(
       description: "依次执行 Hyperframes check 和 render，并返回抖音 MP4 路径。渲染日志只保留末尾摘要，避免占用上下文。",
       parameters: {
         type: "object",
-        properties: { projectDir: { type: "string", description: "video_create_hyperframes 创建的工作区内项目目录" } },
+        properties: { projectDir: { type: "string", description: "Hyperframes 工程目录，例如 videos" } },
         required: ["projectDir"],
         additionalProperties: false,
       },

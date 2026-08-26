@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -184,4 +184,27 @@ test("渲染以无沙箱权限执行，并把 npm 缓存放在工程内", async 
   expect(calls[0]?.sandboxPolicy).toEqual({ mode: "danger-full-access", workspaceRoot: root });
   expect(calls[0]?.command).toContain(`${output}/.npm-cache`);
   expect(calls[0]?.command).toContain(`${output}/.hyperframes-tmp`);
+});
+
+test("创建工程直接写在 outputDir，不再套一层 slug", async () => {
+  const root = await mkdtemp(join(tmpdir(), "hyperframes-flat-"));
+  await prepareProject(root);
+  await writeFile(join(root, "package.json"), JSON.stringify({
+    name: "demo-agent",
+    repository: "https://github.com/lobster-bujiaban/demo-agent",
+  }));
+  const registry = new ToolRegistry();
+  installHyperframesVideo(registry, {
+    root,
+    shell: {
+      async run() {
+        return { exitCode: 0, signal: null, stdout: "ok\n", stderr: "", truncated: false, timedOut: false, aborted: false };
+      },
+    },
+  });
+  const result = await registry.execute("video_create_hyperframes", { outputDir: "videos", plan }, new AbortController().signal);
+  expect(result).toMatchObject({ isError: false });
+  expect(JSON.parse(result.output)).toMatchObject({ status: "created", projectDir: join(root, "videos") });
+  expect(await readFile(join(root, "videos", "video-plan.json"), "utf8")).toContain('"slug": "demo-agent"');
+  await expect(stat(join(root, "videos", "demo-agent"))).rejects.toMatchObject({ code: "ENOENT" });
 });
