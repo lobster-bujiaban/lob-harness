@@ -194,6 +194,8 @@ let modelSettings = null;
 let selectedWorkspace = "";
 let listedSessions = [];
 let hideBlankSessions = false;
+let followLatest = true;
+let bottomScrollFrame = 0;
 const workspaceAliases = JSON.parse(
   localStorage.getItem("lob-harness.workspace-aliases")
     ?? localStorage.getItem("tiny-harness.workspace-aliases")
@@ -208,6 +210,18 @@ const removedWorkspaces = new Set(JSON.parse(
 function saveWorkspacePreferences() {
   localStorage.setItem("lob-harness.workspace-aliases", JSON.stringify(workspaceAliases));
   localStorage.setItem("lob-harness.removed-workspaces", JSON.stringify([...removedWorkspaces]));
+}
+
+function scrollMainToBottom(options = {}) {
+  followLatest = true;
+  cancelAnimationFrame(bottomScrollFrame);
+  bottomScrollFrame = requestAnimationFrame(() => {
+    main.scrollTo({ top: main.scrollHeight, behavior: options.smooth ? "smooth" : "auto" });
+  });
+}
+
+function followLiveOutput() {
+  if (followLatest) scrollMainToBottom();
 }
 
 function pathName(path) {
@@ -1105,7 +1119,7 @@ function renderTranscript(events) {
     if (event.type === "tool_result") makeCollapsible(article, body, 240);
     transcript.append(article);
   }
-  transcript.lastElementChild?.scrollIntoView({ block: "end" });
+  scrollMainToBottom();
 }
 
 function createMessageActions(event, options = {}) {
@@ -1173,7 +1187,7 @@ function appendLiveReasoning(delta) {
     body.textContent += delta;
     preview.textContent = lastNonEmptyLine(body.textContent) || "思考中";
   }
-  liveThink.scrollIntoView({ block: "end" });
+  followLiveOutput();
 }
 
 function appendLiveTool(event) {
@@ -1189,7 +1203,7 @@ function appendLiveTool(event) {
   article.append(meta, body);
   if (event.type === "tool_result") makeCollapsible(article, body, 240);
   transcript.append(article);
-  article.scrollIntoView({ block: "end" });
+  followLiveOutput();
 }
 
 function appendLiveMessage(label, text, className = "") {
@@ -1208,7 +1222,7 @@ function appendLiveMessage(label, text, className = "") {
   article.append(meta, body);
   if (label === "用户") article.append(createMessageActions({ text }, { copyLabel: "复制输入" }));
   transcript.append(article);
-  article.scrollIntoView({ block: "end" });
+  followLiveOutput();
   return body;
 }
 
@@ -1242,7 +1256,7 @@ function renderLiveEvent(event) {
     }
     article.dataset.stream = `${article.dataset.stream ?? ""}${event.text}`;
     renderMarkdown(body, article.dataset.stream);
-    article.scrollIntoView({ block: "end" });
+    followLiveOutput();
     return;
   }
   if (event.type === "tool_call" || event.type === "tool_result") {
@@ -1829,10 +1843,11 @@ settingsNav.addEventListener("click", (event) => {
 pluginSearch.addEventListener("input", renderPlugins);
 main.addEventListener("scroll", () => {
   const distance = main.scrollHeight - main.clientHeight - main.scrollTop;
+  followLatest = distance < 80;
   scrollToBottom.hidden = stage.classList.contains("is-hero") || distance < 80;
 });
 scrollToBottom.addEventListener("click", () => {
-  main.scrollTo({ top: main.scrollHeight, behavior: "smooth" });
+  scrollMainToBottom({ smooth: true });
 });
 closeSettings.addEventListener("click", dismissModelSettings);
 cancelSettings.addEventListener("click", dismissModelSettings);
