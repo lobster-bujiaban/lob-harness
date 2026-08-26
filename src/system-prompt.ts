@@ -1,0 +1,62 @@
+import type { ModelMessage } from "./session.ts";
+import { Context, Service } from "@deepseek-ai/cordis";
+
+export type SystemPromptSection = { id: string; text: string; order?: number };
+export interface SystemPromptProvider {
+  register(section: SystemPromptSection): () => void;
+  render(): string;
+  messages(): ModelMessage[];
+}
+
+/** 每次请求即时渲染；注册和撤销不进入会话权威日志。 */
+export class SystemPromptRegistry {
+  private readonly sections = new Map<string, SystemPromptSection & { insertion: number }>();
+  private insertion = 0;
+
+  register(section: SystemPromptSection): () => void {
+    const id = section.id.trim();
+    const text = section.text.trim();
+    if (id.length === 0) throw new Error("system prompt section id required");
+    if (text.length === 0) throw new Error("system prompt section text required");
+    if (this.sections.has(id)) throw new Error(`system prompt section already registered: ${id}`);
+    const stored = { ...section, id, text, insertion: this.insertion++ };
+    this.sections.set(id, stored);
+    let disposed = false;
+    return () => {
+      if (disposed) return;
+      disposed = true;
+      if (this.sections.get(id) === stored) this.sections.delete(id);
+    };
+  }
+
+  render(): string {
+    return [...this.sections.values()]
+      .sort((left, right) => (left.order ?? 0) - (right.order ?? 0) || left.insertion - right.insertion)
+      .map((section) => section.text)
+      .join("\n\n");
+  }
+
+  messages(): ModelMessage[] {
+    const content = this.render();
+    return content.length === 0 ? [] : [{ role: "system", content }];
+  }
+}
+
+export const emptySystemPromptRegistry = new SystemPromptRegistry();
+
+declare module "@deepseek-ai/cordis" {
+  interface Context {
+    systemPrompt: SystemPromptService;
+  }
+}
+
+/** Cordis Prompt Service：section 注册属于贡献 Fiber，卸载时 disposer 自动撤销。 */
+export class SystemPromptService extends Service implements SystemPromptProvider {
+  constructor(ctx: Context, private readonly registry: SystemPromptProvider = new SystemPromptRegistry()) {
+    super(ctx, "systemPrompt");
+  }
+
+  register(section: SystemPromptSection): () => void { return this.registry.register(section); }
+  render(): string { return this.registry.render(); }
+  messages(): ModelMessage[] { return this.registry.messages(); }
+}
