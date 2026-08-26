@@ -17,6 +17,7 @@ import { Context } from "@deepseek-ai/cordis";
 import { settingsLlmProvider } from "./llm-service.ts";
 import { assembleWebContext, dumpWebConfig, loadWebConfig, readProfilePatch, type ProductConfig } from "./composition.ts";
 import { LocalFsProvider } from "./fs-service.ts";
+import { PROMO_VIDEO_PROMPT } from "./promo-video-prompt.ts";
 
 const DEFAULT_ROOTS = {
   tmp: resolve("tmp"),
@@ -489,6 +490,11 @@ export async function handleRequest(
 
   if (method !== "GET") {
     sendJson(res, 405, { error: "method not allowed" });
+    return;
+  }
+
+  if (url.pathname === "/api/prompts/promo-video") {
+    sendJson(res, 200, { text: PROMO_VIDEO_PROMPT });
     return;
   }
 

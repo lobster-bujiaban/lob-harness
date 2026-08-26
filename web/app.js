@@ -1453,10 +1453,10 @@ function openWorkspaceMenu(anchor, root) {
   document.querySelector(".workspace-menu")?.remove();
   const menu = document.createElement("div");
   menu.className = "workspace-menu";
-  menu.innerHTML = `<button type="button" data-action="rename"><span>✎</span>重命名</button><button type="button" data-action="delete" class="danger"><span>♲</span>删除工作区</button>`;
+  menu.innerHTML = `<button type="button" data-action="video"><span>▷</span>生成宣传视频</button><button type="button" data-action="rename"><span>✎</span>重命名</button><button type="button" data-action="delete" class="danger"><span>♲</span>删除工作区</button>`;
   const rect = anchor.getBoundingClientRect();
   menu.style.top = `${rect.bottom - 3}px`;
-  menu.style.left = `${Math.min(rect.right - 62, window.innerWidth - 230)}px`;
+  menu.style.left = `${Math.min(rect.right - 80, window.innerWidth - 248)}px`;
   document.body.append(menu);
   const close = (event) => {
     if (!menu.contains(event.target)) menu.remove();
@@ -1464,6 +1464,11 @@ function openWorkspaceMenu(anchor, root) {
   setTimeout(() => document.addEventListener("click", close, { once: true }));
   menu.addEventListener("click", (event) => {
     const action = event.target.closest("button")?.dataset.action;
+    if (action === "video") {
+      menu.remove();
+      void startPromoVideo(root);
+      return;
+    }
     if (action === "rename") {
       const name = window.prompt("重命名工作区", workspaceAliases[root] ?? pathName(root));
       if (name !== null && name.trim().length > 0) workspaceAliases[root] = name.trim();
@@ -1598,6 +1603,25 @@ async function clearAllSessions() {
   }
 }
 
+async function startPromoVideo(root) {
+  if (managingSessions) return;
+  selectedWorkspace = root;
+  sessionStatus.classList.remove("error");
+  sessionStatus.textContent = "正在开始生成宣传视频…";
+  try {
+    const promptRes = await fetch("/api/prompts/promo-video");
+    const prompt = await promptRes.json();
+    if (!promptRes.ok) throw new Error(prompt.error ?? "无法加载宣传视频提示词");
+    const session = await createSession(root);
+    if (session === undefined) return;
+    await loadSession(session.source, session.file);
+    await sendTurn(prompt.text);
+  } catch (err) {
+    sessionStatus.textContent = err instanceof Error ? err.message : "无法开始生成宣传视频";
+    sessionStatus.classList.add("error");
+  }
+}
+
 async function createSession(workspace = selectedWorkspace) {
   if (managingSessions) return;
   managingSessions = true;
@@ -1612,6 +1636,7 @@ async function createSession(workspace = selectedWorkspace) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error ?? "无法新建会话");
     await refreshSessions(data);
+    return data;
   } finally {
     managingSessions = false;
     updateSessionActions();

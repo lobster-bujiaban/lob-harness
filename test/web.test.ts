@@ -29,6 +29,12 @@ test("回放 API 能列出并读取 fixture", async () => {
   const { port } = server.address() as AddressInfo;
 
   try {
+    const promptRes = await fetch(`http://127.0.0.1:${port}/api/prompts/promo-video`);
+    const prompt = (await promptRes.json()) as { text: string };
+    expect(promptRes.ok).toBe(true);
+    expect(prompt.text).toContain("video_analyze_source");
+    expect(prompt.text).toContain("video_render_hyperframes");
+
     const versionRes = await fetch(`http://127.0.0.1:${port}/api/dev/version`);
     const version = (await versionRes.json()) as { version: string };
     expect(versionRes.ok).toBe(true);
