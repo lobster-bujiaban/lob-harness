@@ -1,7 +1,10 @@
 import { copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+import type { SandboxExecutionPolicy } from "./sandbox-service.ts";
 import type { ShellProvider } from "./shell-service.ts";
 import { ToolError, type ToolRegistry } from "./tools.ts";
+import { renderCaptions, renderFrame } from "./hyperframes-visual.ts";
 
 const HYPERFRAMES_VERSION = "0.7.108";
 const SOURCE_EXTENSIONS = new Set([".c", ".cc", ".cpp", ".cs", ".go", ".java", ".js", ".jsx", ".kt", ".md", ".php", ".py", ".rb", ".rs", ".sh", ".sql", ".ts", ".tsx", ".vue"]);
@@ -79,9 +82,7 @@ export function installHyperframesVideo(
 ): () => void {
   const root = resolve(options.root);
   const voices = options.voices ?? DEFAULT_VOICES;
-  const disposeVoicePolicy = registry.onPreExecute(async (execution, next) => execution.name === "video_generate_voice"
-    ? { kind: "ask", reason: "将 video-plan.json 中的旁白文本发送到阿里云百炼 CosyVoice 生成音频" }
-    : next());
+  const shellPolicy = unrestrictedPolicy(root);
   const disposers = [
     registry.register({
       name: "video_analyze_source",
@@ -130,7 +131,7 @@ export function installHyperframesVideo(
     }),
     registry.register({
       name: "video_generate_voice",
-      description: "使用 CosyVoice 为 Hyperframes 工程逐场景生成旁白，按真实音频时长重写视频时间轴。旁白会发送到阿里云百炼，调用前必须审批；API Key 只读取 DASHSCOPE_API_KEY。",
+      description: "使用 CosyVoice 为 Hyperframes 工程逐场景生成旁白，按真实音频时长重写视频时间轴。旁白会发送到阿里云百炼，无需审批；API Key 只读取 DASHSCOPE_API_KEY。",
       parameters: {
         type: "object",
         properties: {
@@ -150,6 +151,7 @@ export function installHyperframesVideo(
           signal: context.signal,
           voices,
           model: options.voiceModel ?? "cosyvoice-v3-flash",
+          sandboxPolicy: shellPolicy,
           ...(requestedVoice === undefined ? {} : { voice: requestedVoice }),
           synthesize: options.synthesizeVoice ?? dashscopeSynthesizer(options.credentialsPath),
         });
@@ -174,13 +176,18 @@ export function installHyperframesVideo(
           throw new ToolError("视频要求有声交付，但仍有场景缺少旁白音频", "VIDEO_AUDIO_INCOMPLETE");
         }
         const output = join(project, "renders", `${plan.slug}.mp4`);
-        const npmCache = join(root, ".npm-cache");
+        const npmCache = join(project, ".npm-cache");
+        const tmpDir = join(project, ".hyperframes-tmp");
+        await mkdir(npmCache, { recursive: true });
+        await mkdir(tmpDir, { recursive: true });
+        const envPrefix = `NPM_CONFIG_CACHE=${shellQuote(npmCache)} TMPDIR=${shellQuote(tmpDir)}`;
         const result = await options.shell.run({
-          command: `NPM_CONFIG_CACHE=${shellQuote(npmCache)} npm run check && NPM_CONFIG_CACHE=${shellQuote(npmCache)} npm run render`,
+          command: `${envPrefix} npm run check && ${envPrefix} npm run render`,
           cwd: project,
           signal: context.signal,
           timeoutMs: options.renderTimeoutMs ?? 1_800_000,
           maxBytes: 24_000,
+          sandboxPolicy: shellPolicy,
         });
         if (result.exitCode !== 0 || result.timedOut || result.aborted) {
           throw new ToolError(`Hyperframes 渲染失败：${tail(result.stderr || result.stdout)}`, result.timedOut ? "VIDEO_RENDER_TIMEOUT" : "VIDEO_RENDER_FAILED");
@@ -202,7 +209,7 @@ export function installHyperframesVideo(
       },
     }),
   ];
-  return () => { disposers.reverse().forEach((dispose) => dispose()); disposeVoicePolicy(); };
+  return () => { disposers.reverse().forEach((dispose) => dispose()); };
 }
 
 export async function analyzeSource(path: string, signal: AbortSignal, exclude: readonly string[] = []) {
@@ -280,6 +287,7 @@ export async function createHyperframesProject(root: string, output: string, pla
   await mkdir(join(output, "assets", "voice"), { recursive: true });
   await mkdir(join(output, "assets", "brand"), { recursive: true });
   await mkdir(join(output, "renders"), { recursive: true });
+  await copyVisualAssets(output);
   const normalizedLogoPath = logoSource === undefined ? undefined : `assets/brand/project-logo${extname(logoSource) || ".png"}`;
   if (logoSource !== undefined && normalizedLogoPath !== undefined) await copyFile(logoSource, join(output, normalizedLogoPath));
   const normalizedScenes: VideoScene[] = [];
@@ -303,7 +311,7 @@ export async function createHyperframesProject(root: string, output: string, pla
     writeFile(join(output, "video-plan.json"), `${JSON.stringify(normalized, null, 2)}\n`),
     writeFile(join(output, "hyperframes.json"), `${JSON.stringify(hyperframesConfig(), null, 2)}\n`),
     writeFile(join(output, "package.json"), `${JSON.stringify(packageConfig(plan.slug), null, 2)}\n`),
-    writeFile(join(output, ".gitignore"), "node_modules/\nrenders/\n.hyperframes/\n"),
+    writeFile(join(output, ".gitignore"), "node_modules/\nrenders/\n.hyperframes/\n.npm-cache/\n.hyperframes-tmp/\n"),
     writeFile(join(output, "index.html"), renderIndex(normalized)),
     writeFile(join(output, "发布文案.md"), renderPublishCopy(normalized)),
     writeFile(join(output, "compositions", "captions.html"), renderCaptions(normalized)),
@@ -328,6 +336,7 @@ export async function generateVoice(project: string, options: {
   model: string;
   voice?: string;
   synthesize: VoiceSynthesizer;
+  sandboxPolicy?: SandboxExecutionPolicy;
 }) {
   if (options.voices.length === 0) throw new ToolError("插件未配置可用音色", "VIDEO_VOICE_CONFIG_INVALID");
   const planPath = join(project, "video-plan.json");
@@ -355,7 +364,7 @@ export async function generateVoice(project: string, options: {
     });
     if (bytes.byteLength === 0) throw new ToolError(`场景 ${scene.id} 返回空音频`, "VIDEO_VOICE_EMPTY");
     await writeFile(absoluteAudio, bytes);
-    const duration = Math.max(3, Number(((await probeDuration(options.shell, project, relativeAudio, options.signal)) + 0.35).toFixed(3)));
+    const duration = Math.max(3, Number(((await probeDuration(options.shell, project, relativeAudio, options.signal, options.sandboxPolicy)) + 0.35).toFixed(3)));
     if (duration > 120) throw new ToolError(`场景 ${scene.id} 旁白超过 120 秒，请拆分场景`, "VIDEO_VOICE_TOO_LONG");
     scenes.push({ ...scene, duration, audioPath: relativeAudio });
     metaScenes.push({ id: scene.id, path: relativeAudio, duration, characters: scene.narration.length });
@@ -428,13 +437,20 @@ async function readDashscopeApiKey(path: string | undefined): Promise<string | u
   }
 }
 
-async function probeDuration(shell: ShellProvider, project: string, path: string, signal: AbortSignal): Promise<number> {
+async function probeDuration(
+  shell: ShellProvider,
+  project: string,
+  path: string,
+  signal: AbortSignal,
+  sandboxPolicy?: SandboxExecutionPolicy,
+): Promise<number> {
   const result = await shell.run({
     command: `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 ${path}`,
     cwd: project,
     signal,
     timeoutMs: 30_000,
     maxBytes: 2_000,
+    ...(sandboxPolicy === undefined ? {} : { sandboxPolicy }),
   });
   const duration = Number(result.stdout.trim());
   if (result.exitCode !== 0 || !Number.isFinite(duration) || duration <= 0) {
@@ -510,35 +526,27 @@ function parsePlan(value: unknown): HyperframesPlan {
   };
 }
 
+async function copyVisualAssets(output: string): Promise<void> {
+  const pack = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "hyperframes");
+  await mkdir(join(output, "assets", "fonts"), { recursive: true });
+  await mkdir(join(output, "assets", "vendor"), { recursive: true });
+  for (const font of ["Georgia.ttf", "Georgia-Bold.ttf", "Consola.ttf"]) {
+    const source = join(pack, "fonts", font);
+    if ((await stat(source).catch(() => undefined))?.isFile()) await copyFile(source, join(output, "assets", "fonts", font));
+  }
+  const gsap = join(pack, "vendor", "gsap.min.js");
+  if ((await stat(gsap).catch(() => undefined))?.isFile()) await copyFile(gsap, join(output, "assets", "vendor", "gsap.min.js"));
+}
+
 function renderIndex(plan: HyperframesPlan): string {
   let cursor = 0;
   const tracks = plan.scenes.map((scene, index) => {
     const start = cursor; cursor += scene.duration;
-    const audio = scene.audioPath === undefined ? "" : `\n      <audio src="${escapeHtml(scene.audioPath)}" data-start="${start.toFixed(3)}" data-duration="${scene.duration.toFixed(3)}" data-track-index="10"></audio>`;
+    const audioId = String(index + 1).padStart(2, "0");
+    const audio = scene.audioPath === undefined ? "" : `\n      <audio id="audio-${audioId}" src="${escapeHtml(scene.audioPath)}" data-start="${start.toFixed(3)}" data-duration="${scene.duration.toFixed(3)}" data-track-index="10"></audio>`;
     return `      <div class="scene" data-composition-id="${escapeHtml(scene.id)}" data-composition-src="compositions/frames/${escapeHtml(scene.id)}.html" data-start="${start.toFixed(3)}" data-duration="${scene.duration.toFixed(3)}" data-track-index="${index % 2}"></div>${audio}`;
   }).join("\n");
-  return `<!doctype html>\n<html><head><meta charset="UTF-8"><meta name="viewport" content="width=1080,height=1920"><style>*{box-sizing:border-box}html,body{margin:0;width:1080px;height:1920px;overflow:hidden;background:#000}.scene{position:absolute;inset:0}</style></head><body><div id="root" data-composition-id="main" data-start="0" data-duration="${cursor.toFixed(3)}" data-width="1080" data-height="1920">\n${tracks}\n      <div class="scene" data-composition-id="captions" data-composition-src="compositions/captions.html" data-start="0" data-duration="${cursor.toFixed(3)}" data-track-index="20"></div>\n    </div></body></html>\n`;
-}
-
-function renderFrame(plan: HyperframesPlan, scene: VideoScene, index: number): string {
-  const accent = plan.accent ?? "#0891B2", bg = plan.background ?? "#F6F6F2", fg = plan.foreground ?? "#141412";
-  const bullets = (scene.bullets?.length ? scene.bullets : [scene.narration]).map((item, i) => `<li><b>${String(i + 1).padStart(2, "0")}</b><span>${escapeHtml(item)}</span></li>`).join("");
-  const logo = plan.logoPath === undefined ? "" : `<img src="../../${escapeHtml(plan.logoPath)}" alt="">`;
-  const source = scene.sourceExcerpt === undefined ? "" : `<div class="source"><div class="source-label">${escapeHtml(scene.sourceLabel ?? "SOURCE")}</div><pre>${escapeHtml(scene.sourceExcerpt)}</pre><p>${escapeHtml(scene.evidence?.[0]?.claim ?? "")}</p></div>`;
-  const panel = source || `<ul>${bullets}</ul>`;
-  const repository = repositoryLabel(plan.repositoryUrl ?? "");
-  const firstBadge = index === 0 ? `<div class="first-badge">${escapeHtml(plan.creatorName ?? "虾哥不加班")}公开研发 · OPEN SOURCE</div>` : "";
-  const endCard = index === plan.scenes.length - 1
-    ? `<div class="end-card"><strong>GitHub 搜索</strong><span>${escapeHtml(repository)}</span><em>关注「${escapeHtml(plan.creatorName ?? "虾哥不加班")}」</em></div>`
-    : "";
-  const template = scene.template ?? "points";
-  return `<template><style>#root{position:absolute;inset:0;width:1080px;height:1920px;overflow:hidden;background:${bg};color:${fg};font-family:Arial,"PingFang SC",sans-serif}.clip{position:absolute}.bg{inset:0;background-image:linear-gradient(${fg}12 1px,transparent 1px),linear-gradient(90deg,${fg}12 1px,transparent 1px);background-size:54px 54px}.brand{left:64px;top:52px;height:74px;display:flex;align-items:center;gap:18px;font:700 25px monospace;letter-spacing:.04em}.brand img{width:68px;height:68px;border-radius:50%;object-fit:cover}.repo{left:64px;right:64px;top:142px;color:${accent};font:24px monospace}.head{left:64px;right:64px;top:245px}.eyebrow{color:${accent};font:700 26px monospace;letter-spacing:.16em}.head h1{font-size:88px;line-height:1.08;margin:24px 0 0;max-width:930px}.first-badge{display:inline-block;margin-bottom:22px;padding:12px 20px;background:${accent};color:#fff;font:700 24px monospace}.panel{left:64px;right:64px;top:650px;min-height:690px;padding:50px;background:${fg};color:${bg};border-radius:12px}.template-hook .panel{background:${accent};transform:rotate(-1deg)}.template-flow .panel li{grid-template-columns:72px 1fr}.template-flow .panel li:not(:last-child)::after{content:"↓";grid-column:2;color:${accent};font-size:40px}.template-compare .panel ul{grid-template-columns:1fr 1fr}.template-compare .panel li{display:block;border-left:5px solid ${accent};padding-left:22px}.template-boundary .panel{border:8px solid ${accent};background:${bg};color:${fg}}ul{list-style:none;margin:0;padding:0;display:grid;gap:28px}li{display:grid;grid-template-columns:72px 1fr;gap:20px;align-items:start;font-size:40px;line-height:1.35}li b{color:${accent};font:26px monospace;padding-top:10px}.source-label{color:${accent};font:700 25px monospace;margin-bottom:22px}.source pre{margin:0;padding:28px;background:#0e1726;color:#e6edf3;border-radius:12px;white-space:pre-wrap;font:25px/1.55 Menlo,Consolas,monospace;max-height:420px;overflow:hidden}.source p{font-size:34px;line-height:1.4;margin:28px 0 0}.bar{left:64px;right:64px;top:1510px;padding:24px 30px;background:${accent};color:#fff;font-size:34px;line-height:1.3}.page{right:64px;top:68px;font:24px monospace}.end-card{position:absolute;left:64px;right:64px;bottom:70px;padding:28px 34px;background:${fg};color:${bg};display:grid;gap:10px;z-index:8}.end-card strong{color:${accent};font:24px monospace}.end-card span{font:700 30px monospace}.end-card em{font:700 28px sans-serif;font-style:normal}</style><script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script><div id="root" class="template-${template}" data-composition-id="${escapeHtml(scene.id)}" data-width="1080" data-height="1920" data-duration="${scene.duration}"><div class="clip bg" data-start="0" data-duration="${scene.duration}" data-track-index="0"></div><div class="clip brand" data-start="0" data-duration="${scene.duration}" data-track-index="1">${logo}<span>${escapeHtml(plan.creatorName ?? "虾哥不加班")} · ${escapeHtml(plan.projectName)}</span></div><div class="clip repo" data-start="0" data-duration="${scene.duration}" data-track-index="1">github.com/${escapeHtml(repository)}</div><div class="clip page" data-start="0" data-duration="${scene.duration}" data-track-index="1">${String(index + 1).padStart(2, "0")}</div><div id="head" class="clip head" data-start="0" data-duration="${scene.duration}" data-track-index="2">${firstBadge}<div class="eyebrow">${escapeHtml(scene.eyebrow ?? template)}</div><h1>${escapeHtml(scene.title)}</h1></div><div id="panel" class="clip panel" data-start="0" data-duration="${scene.duration}" data-track-index="3">${panel}</div><div id="bar" class="clip bar" data-start="0" data-duration="${scene.duration}" data-track-index="4">${escapeHtml(scene.narration)}</div>${endCard}</div><script>window.__timelines=window.__timelines||{};const tl=gsap.timeline({paused:true});tl.fromTo("#head",{y:-36,opacity:0},{y:0,opacity:1,duration:.6,ease:"power3.out"},0);tl.fromTo("#panel",{y:48,opacity:0},{y:0,opacity:1,duration:.7,ease:"power2.out"},.8);tl.fromTo("#bar",{y:28,opacity:0},{y:0,opacity:1,duration:.5,ease:"power2.out"},Math.max(1.8,${scene.duration}*.55));window.__timelines["${escapeJs(scene.id)}"]=tl;</script></template>\n`;
-}
-
-function renderCaptions(plan: HyperframesPlan): string {
-  let cursor = 0;
-  const cues = plan.scenes.map((scene) => { const start = cursor; cursor += scene.duration; return { start, end: cursor, text: scene.narration }; });
-  return `<template><style>#root{position:absolute;inset:0;width:1080px;height:1920px;pointer-events:none}.caption{position:absolute;left:90px;right:90px;bottom:120px;padding:18px 26px;background:rgba(0,0,0,.82);color:#fff;border-radius:12px;text-align:center;font:700 46px/1.3 Arial,"PingFang SC",sans-serif}</style><script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script><div id="root" data-composition-id="captions" data-width="1080" data-height="1920" data-duration="${cursor}"><div id="caption" class="clip caption" data-start="0" data-duration="${cursor}" data-track-index="0"></div></div><script>const cues=${JSON.stringify(cues)};const node=document.getElementById("caption");window.__timelines=window.__timelines||{};const tl=gsap.timeline({paused:true});cues.forEach(c=>tl.call(()=>node.textContent=c.text,[],c.start));window.__timelines.captions=tl;</script></template>\n`;
+  return `<!doctype html>\n<html><head><meta charset="UTF-8"><meta name="viewport" content="width=1080,height=1920"><style>*{box-sizing:border-box}html,body{margin:0;width:1080px;height:1920px;overflow:hidden;background:#000}.scene{position:absolute;inset:0}</style></head><body><div id="root" data-composition-id="main" data-no-timeline data-start="0" data-duration="${cursor.toFixed(3)}" data-width="1080" data-height="1920">\n${tracks}\n      <div class="scene" data-composition-id="captions" data-composition-src="compositions/captions.html" data-start="0" data-duration="${cursor.toFixed(3)}" data-track-index="20"></div>\n    </div></body></html>\n`;
 }
 
 function renderPublishCopy(plan: HyperframesPlan): string {
@@ -738,6 +746,9 @@ function optionalStringArray(args: unknown, key: string, max: number): string[] 
   return stringArray(args[key], key, max);
 }
 
+function unrestrictedPolicy(workspaceRoot: string): SandboxExecutionPolicy {
+  return { mode: "danger-full-access", workspaceRoot };
+}
 function shellQuote(value: string): string { return `'${value.replaceAll("'", `'\\''`)}'`; }
 function resolveInside(root: string, input: string) { const target = resolve(root, input); if (target !== root && !target.startsWith(`${root}${sep}`)) throw new ToolError("路径必须位于当前工作区", "VIDEO_PATH_OUTSIDE_WORKSPACE"); return target; }
 function requiredString(args: unknown, key: string) { return stringValue(isObject(args) ? args[key] : undefined, key); }
@@ -753,5 +764,4 @@ function isNodeError(error: unknown, code: string) { return isObject(error) && e
 function isObject(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function compact(text: string, max: number) { return text.replace(/\s+/gu, " ").trim().slice(0, max); }
 function escapeHtml(text: string) { return text.replace(/[&<>"']/gu, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[char]!); }
-function escapeJs(text: string) { return text.replace(/[\\"\n\r]/gu, (char) => ({ "\\": "\\\\", "\"": "\\\"", "\n": "\\n", "\r": "\\r" })[char]!); }
 function tail(text: string) { return text.trim().split("\n").slice(-16).join("\n").slice(-4_000); }

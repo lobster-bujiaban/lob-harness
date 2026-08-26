@@ -58,9 +58,18 @@ test("结构化方案生成完整 Hyperframes 工程", async () => {
   expect(result).toMatchObject({ status: "created", scenes: 3, duration: 30 });
   expect(JSON.parse(await readFile(join(output, "package.json"), "utf8")).scripts.render)
     .toContain("renders/demo-agent.mp4");
-  expect(await readFile(join(output, "compositions", "frames", "hook.html"), "utf8"))
-    .toContain('class="clip head"');
-  expect(await readFile(join(output, "index.html"), "utf8")).toContain('data-width="1080"');
+  const hook = await readFile(join(output, "compositions", "frames", "hook.html"), "utf8");
+  expect(hook).toContain('class="clip f-head"');
+  expect(hook).toContain('font-family:"Georgia"');
+  expect(hook).toContain('id="f-draw"');
+  expect(hook).toContain('src="assets/brand/project-logo.png"');
+  expect(hook).not.toContain("../../assets");
+  expect(hook).toContain("assets/vendor/gsap.min.js");
+  expect(hook).not.toContain("template-hook");
+  expect(await readFile(join(output, "assets", "vendor", "gsap.min.js"), "utf8")).toContain("gsap");
+  const index = await readFile(join(output, "index.html"), "utf8");
+  expect(index).toContain('data-width="1080"');
+  expect(index).toContain("data-no-timeline");
   expect(await readFile(join(output, "发布文案.md"), "utf8")).toContain("#Agent原理");
   expect(await readFile(join(output, "compositions", "frames", "flow.html"), "utf8")).toContain("agent-service.ts · L1–1");
   expect(result.contentChecks).toMatchObject({ keywords: true, saveValue: true, seriesContinuation: true, creatorVisible: true, qrCodeAbsent: true });
@@ -92,21 +101,65 @@ test("配音按真实时长回写工程并持久化音色", async () => {
     duration: 10,
     audioPath: "assets/voice/01.mp3",
   });
+  expect(await readFile(join(output, "index.html"), "utf8")).toContain('id="audio-01"');
   expect(await readFile(join(output, "assets", "voice", "01.mp3"))).toEqual(Buffer.from([1, 2, 3]));
 });
 
-test("配音文本外发没有审批通道时拒绝执行", async () => {
-  const root = await mkdtemp(join(tmpdir(), "hyperframes-voice-approval-"));
+test("配音无需审批即可执行", async () => {
+  const root = await mkdtemp(join(tmpdir(), "hyperframes-voice-no-approval-"));
   await prepareProject(root);
   const output = join(root, "video");
   await createHyperframesProject(root, output, plan, new AbortController().signal);
   const registry = new ToolRegistry();
+  const policies: unknown[] = [];
   installHyperframesVideo(registry, {
     root,
-    shell: { async run() { throw new Error("不应执行"); } },
-    synthesizeVoice: async () => { throw new Error("不应外发"); },
+    shell: {
+      async run(request) {
+        policies.push(request.sandboxPolicy);
+        return { exitCode: 0, signal: null, stdout: "9.65\n", stderr: "", truncated: false, timedOut: false, aborted: false };
+      },
+    },
+    synthesizeVoice: async () => new Uint8Array([1, 2, 3]),
   });
   const result = await registry.execute("video_generate_voice", { projectDir: "video" }, new AbortController().signal);
-  expect(result).toMatchObject({ isError: true, error: { code: "DENIED" } });
-  expect(result.output).toContain("no approval channel is available");
+  expect(result).toMatchObject({ isError: false });
+  expect(JSON.parse(result.output)).toMatchObject({ status: "completed", scenes: 3 });
+  expect(policies).toEqual(Array(3).fill({ mode: "danger-full-access", workspaceRoot: root }));
+});
+
+test("渲染以无沙箱权限执行，并把 npm 缓存放在工程内", async () => {
+  const root = await mkdtemp(join(tmpdir(), "hyperframes-render-"));
+  await prepareProject(root);
+  const output = join(root, "video");
+  await createHyperframesProject(root, output, plan, new AbortController().signal);
+  await generateVoice(output, {
+    shell: {
+      async run() {
+        return { exitCode: 0, signal: null, stdout: "9.65\n", stderr: "", truncated: false, timedOut: false, aborted: false };
+      },
+    },
+    signal: new AbortController().signal,
+    voices: ["longanyang"],
+    model: "cosyvoice-v3-flash",
+    synthesize: async () => new Uint8Array([1, 2, 3]),
+  });
+  await writeFile(join(output, "renders", "demo-agent.mp4"), "mp4");
+  const calls: { command: string; sandboxPolicy?: unknown }[] = [];
+  const registry = new ToolRegistry();
+  installHyperframesVideo(registry, {
+    root,
+    shell: {
+      async run(request) {
+        calls.push({ command: request.command, sandboxPolicy: request.sandboxPolicy });
+        return { exitCode: 0, signal: null, stdout: "ok\n", stderr: "", truncated: false, timedOut: false, aborted: false };
+      },
+    },
+  });
+  const result = await registry.execute("video_render_hyperframes", { projectDir: "video" }, new AbortController().signal);
+  expect(result).toMatchObject({ isError: false });
+  expect(calls).toHaveLength(1);
+  expect(calls[0]?.sandboxPolicy).toEqual({ mode: "danger-full-access", workspaceRoot: root });
+  expect(calls[0]?.command).toContain(`${output}/.npm-cache`);
+  expect(calls[0]?.command).toContain(`${output}/.hyperframes-tmp`);
 });

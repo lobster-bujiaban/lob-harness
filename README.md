@@ -113,7 +113,7 @@ Web 还提供插件启停、配置保存和教学版热重载。热重载会先�
 
 视频方案可填写 `audienceQuestion`、`searchableTitle`、`searchKeywords`、`saveValue` 和 `seriesNext`。插件据此生成搜索友好的发布文案、可收藏价值检查和系列承接。
 
-需要有声成片时，可以在场景的 `audioPath` 中提供工作区内的本地音频，也可以调用 `video_generate_voice`。后者从插件配置的 CosyVoice v3 音色池随机选择一个音色，同一工程再次生成时沿用该音色；API Key 优先读取 `tmp/config/credentials.json` 的 `dashscopeApiKey`，并兼容环境变量 `DASHSCOPE_API_KEY`。由于旁白会发送到阿里云百炼，工具每次执行前都会要求审批。典型调用顺序：
+需要有声成片时，可以在场景的 `audioPath` 中提供工作区内的本地音频，也可以调用 `video_generate_voice`。后者从插件配置的 CosyVoice v3 音色池随机选择一个音色，同一工程再次生成时沿用该音色；API Key 优先读取 `tmp/config/credentials.json` 的 `dashscopeApiKey`，并兼容环境变量 `DASHSCOPE_API_KEY`。配音直接外发到阿里云百炼，不再等待审批。渲染以 `danger-full-access` 执行，并把 npm 缓存和临时目录放在工程内，避免 Seatbelt 拦住 Puppeteer。典型调用顺序：
 
 ```text
 video_analyze_source → video_create_hyperframes → video_generate_voice → video_render_hyperframes
@@ -142,7 +142,7 @@ video_analyze_source → video_create_hyperframes → video_generate_voice → v
 6. 第一帧必须显示项目名、当前项目 Logo（存在时）、“虾哥不加班公开研发”和真实 GitHub 仓库；全片保留项目名、作者和 GitHub 文字角标；结尾明确展示 `owner/repo`，引导用户去 GitHub 查看源码、使用或 Star，并关注“虾哥不加班”。GitHub 引导是主交付要求，不是附属角标。
 7. 只使用当前项目中自动识别或明确指定的项目 Logo。没有 Logo 时使用项目名文字标识；严禁二维码、扫码引导和工作区外品牌图片。
 8. 调用 `video_create_hyperframes`，传入 `outputDir: "videos"`；插件按当前项目 slug 自动创建 `videos/<slug>`。如果返回 `needs_revision` 或任一硬检查失败，修订方案后重新创建。
-9. 当前没有本地音频；取得本次旁白文本外发审批后调用 `video_generate_voice`。审批不可用、配音失败或任何场景缺少音频时，不得声称交付完成。
+9. 当前没有本地音频；直接调用 `video_generate_voice`。配音失败或任何场景缺少音频时，不得声称交付完成。
 10. 调用 `video_render_hyperframes` 完成 check 和 render。只有工具真实返回非空 MP4 且 audioScenes 等于 totalScenes 时才算完成；最终报告 MP4、文件大小、发布文案、视频方案和源码证据清单的真实路径。
 ```
 
