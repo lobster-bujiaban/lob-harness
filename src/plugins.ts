@@ -12,7 +12,7 @@ import { installGoal } from "./goal.ts";
 import { installCoreTools, ToolRegistry } from "./tools.ts";
 import { ToolsService } from "./tools-service.ts";
 import { FsService, LocalFsProvider } from "./fs-service.ts";
-import { ShellService, SandboxBashProvider } from "./shell-service.ts";
+import { ShellService, SandboxBashProvider, SandboxPowerShellProvider } from "./shell-service.ts";
 import { SubprocessService, LocalSubprocessProvider } from "./subprocess-service.ts";
 import { SandboxService, LocalSandboxProvider } from "./sandbox-service.ts";
 import { SandboxPolicyService } from "./sandbox-policy.ts";
@@ -58,7 +58,7 @@ export const BUILTIN_PLUGINS: readonly PluginManifest[] = Object.freeze([
     id: "workspace-shell",
     name: "Workspace Shell",
     description: "工作区 shell 插件，提供受根目录约束的 bash。",
-    tools: ["bash"],
+    tools: [process.platform === "win32" ? "pwsh" : "bash"],
     configurable: true,
     defaultEnabled: true,
   },
@@ -108,7 +108,10 @@ export class PluginStore {
     if (context.get("sandboxPolicy") === undefined) new SandboxPolicyService(context);
     if (context.get("sandbox") === undefined) new SandboxService(context, new LocalSandboxProvider());
     if (context.get("shell") === undefined) {
-      new ShellService(context, new SandboxBashProvider(context.subprocess, context.sandbox, context.sandboxPolicy));
+      const provider = process.platform === "win32"
+        ? new SandboxPowerShellProvider(context.subprocess, context.sandbox, context.sandboxPolicy)
+        : new SandboxBashProvider(context.subprocess, context.sandbox, context.sandboxPolicy);
+      new ShellService(context, provider);
     }
     this.ready = this.initialize();
   }
@@ -194,6 +197,7 @@ export class PluginStore {
       ctx.tools.register("workspace-shell", (registry, root) => installBash(registry, {
         root,
         provider: ctx.shell,
+        toolName: process.platform === "win32" ? "pwsh" : "bash",
         timeoutMs: config.timeoutMs as number,
         policy: ctx.sandboxPolicy.resolve(root),
       })), { inject: ["tools", "shell", "sandboxPolicy"] });

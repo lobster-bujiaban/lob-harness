@@ -10,7 +10,7 @@ import { SystemPromptService, type SystemPromptProvider } from "./system-prompt.
 import { ToolsService } from "./tools-service.ts";
 import { FsService, type FsProvider } from "./fs-service.ts";
 import { SubprocessService, type SubprocessProvider, LocalSubprocessProvider } from "./subprocess-service.ts";
-import { ShellService, type ShellProvider, LocalBashProvider, SandboxBashProvider } from "./shell-service.ts";
+import { ShellService, type ShellProvider, LocalBashProvider, LocalPowerShellProvider, SandboxBashProvider, SandboxPowerShellProvider } from "./shell-service.ts";
 import { SandboxService, type SandboxBackend, LocalSandboxProvider } from "./sandbox-service.ts";
 import { SandboxPolicyService, parseSandboxMode } from "./sandbox-policy.ts";
 import { SubagentService } from "./subagent-service.ts";
@@ -43,6 +43,7 @@ export type WebAssemblyOptions = {
   sandboxProviders?: Record<string, SandboxBackend>;
   systemPrompt: SystemPromptProvider;
   contextBudget: ContextBudget;
+  platform?: NodeJS.Platform;
 };
 
 const baseEntries: readonly ConfigEntry[] = Object.freeze([
@@ -130,6 +131,7 @@ export function assembleWebContext(
   }
 
   const context = options.context ?? new Context();
+  const platform = options.platform ?? process.platform;
   const seen = new Set<string>();
   for (const entry of base.children ?? []) {
     if (seen.has(entry.id)) throw new Error(`duplicate base entry: ${entry.id}`);
@@ -165,10 +167,16 @@ export function assembleWebContext(
         ));
         break;
       case "shell":
+        const localShell = platform === "win32"
+          ? new LocalPowerShellProvider(context.subprocess)
+          : new LocalBashProvider(context.subprocess);
+        const sandboxShell = platform === "win32"
+          ? new SandboxPowerShellProvider(context.subprocess, context.sandbox, context.sandboxPolicy)
+          : new SandboxBashProvider(context.subprocess, context.sandbox, context.sandboxPolicy);
         new ShellService(context, selectProvider(
           {
-            local: new LocalBashProvider(context.subprocess),
-            sandbox: new SandboxBashProvider(context.subprocess, context.sandbox, context.sandboxPolicy),
+            local: localShell,
+            sandbox: sandboxShell,
             ...options.shellProviders,
           },
           entry,

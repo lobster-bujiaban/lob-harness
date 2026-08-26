@@ -1,4 +1,6 @@
 import { Context, Service } from "@deepseek-ai/cordis";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import type { SubprocessProvider } from "./subprocess-service.ts";
 import type {
   ConfinedArgv,
@@ -11,6 +13,8 @@ import { ToolError } from "./tools.ts";
 
 const DEFAULT_MAX_BYTES = 64_000;
 const MODEL_ENV = { NO_COLOR: "1", TERM: "dumb", PAGER: "cat", GIT_PAGER: "cat" } as const;
+const POWERSHELL_ENV = { NO_COLOR: "1", PAGER: "cat", GIT_PAGER: "cat" } as const;
+const POWERSHELL_UTF8 = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [System.Text.UTF8Encoding]::new($false); ";
 
 export type ShellRunRequest = {
   command: string;
@@ -47,7 +51,19 @@ export class LocalBashProvider implements ShellProvider {
   constructor(private readonly subprocess: SubprocessProvider) {}
 
   async run(request: ShellRunRequest): Promise<ShellRunResult> {
-    return runBash(this.subprocess, ["bash", "-c", request.command], request);
+    return runShell(this.subprocess, ["bash", "-c", request.command], request, MODEL_ENV);
+  }
+}
+
+/** Windows PowerShell 执行器：命令作为 -Command 的单个 argv 传入，并固定 UTF-8 输出。 */
+export class LocalPowerShellProvider implements ShellProvider {
+  constructor(
+    private readonly subprocess: SubprocessProvider,
+    private readonly executable = resolvePowerShellExecutable(),
+  ) {}
+
+  async run(request: ShellRunRequest): Promise<ShellRunResult> {
+    return runShell(this.subprocess, powershellArgv(this.executable, request.command), request, POWERSHELL_ENV);
   }
 }
 
@@ -62,7 +78,7 @@ export class SandboxBashProvider implements ShellProvider {
   async run(request: ShellRunRequest): Promise<ShellRunResult> {
     const policy = request.sandboxPolicy ?? resolvePolicy(this.policies, request.cwd);
     if (policy.mode === "danger-full-access") {
-      const result = await runBash(this.subprocess, ["bash", "-c", request.command], request);
+      const result = await runShell(this.subprocess, ["bash", "-c", request.command], request, MODEL_ENV);
       return { ...result, sandbox: { mode: policy.mode, denied: false } };
     }
     let confined: ConfinedArgv;
@@ -79,7 +95,7 @@ export class SandboxBashProvider implements ShellProvider {
         { cause: error },
       );
     }
-    const result = await runBash(this.subprocess, confined.argv, request);
+    const result = await runShell(this.subprocess, confined.argv, request, MODEL_ENV);
     return {
       ...result,
       sandbox: {
@@ -91,6 +107,65 @@ export class SandboxBashProvider implements ShellProvider {
   }
 }
 
+/** Windows PowerShell 的沙箱消费方；没有 Windows backend 时受限模式失败关闭。 */
+export class SandboxPowerShellProvider implements ShellProvider {
+  constructor(
+    private readonly subprocess: SubprocessProvider,
+    private readonly sandbox: SandboxBackend,
+    private readonly policies: SandboxPolicyService | SandboxExecutionPolicy,
+    private readonly executable = resolvePowerShellExecutable(),
+  ) {}
+
+  async run(request: ShellRunRequest): Promise<ShellRunResult> {
+    const policy = request.sandboxPolicy ?? resolvePolicy(this.policies, request.cwd);
+    const argv = powershellArgv(this.executable, request.command);
+    if (policy.mode === "danger-full-access") {
+      const result = await runShell(this.subprocess, argv, request, POWERSHELL_ENV);
+      return { ...result, sandbox: { mode: policy.mode, denied: false, enforcement: "none" } };
+    }
+    let confined: ConfinedArgv;
+    try {
+      confined = this.sandbox.confine(argv, {
+        mode: policy.mode,
+        workspaceRoot: policy.workspaceRoot,
+      });
+    } catch (error) {
+      if (error instanceof ToolError && error.code === "SANDBOX_UNAVAILABLE") throw error;
+      throw new ToolError(
+        error instanceof Error ? error.message : "sandbox confine failed",
+        "SANDBOX_UNAVAILABLE",
+        { cause: error },
+      );
+    }
+    const result = await runShell(this.subprocess, confined.argv, request, POWERSHELL_ENV);
+    return {
+      ...result,
+      sandbox: {
+        mode: policy.mode,
+        denied: isSandboxDenial(result, confined.denialSignatures),
+        enforcement: confined.enforcement,
+      },
+    };
+  }
+}
+
+/** 优先 PowerShell 7，最后兼容 Windows 自带的 5.1。 */
+export function resolvePowerShellExecutable(
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  if (platform !== "win32") return "pwsh";
+  const programFiles = env.ProgramFiles ?? "C:\\Program Files";
+  const systemRoot = env.SystemRoot ?? "C:\\Windows";
+  const candidates = [join(programFiles, "PowerShell", "7", "pwsh.exe")];
+  for (const entry of (env.PATH ?? "").split(";")) {
+    const path = entry.trim().replace(/^"|"$/gu, "");
+    if (path.length > 0) candidates.push(join(path, "pwsh.exe"));
+  }
+  candidates.push(join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"));
+  return candidates.find((candidate) => existsSync(candidate)) ?? "pwsh.exe";
+}
+
 function resolvePolicy(
   policies: SandboxPolicyService | SandboxExecutionPolicy,
   cwd: string,
@@ -98,10 +173,15 @@ function resolvePolicy(
   return "resolve" in policies ? policies.resolve(cwd) : policies;
 }
 
-async function runBash(
+function powershellArgv(executable: string, command: string): string[] {
+  return [executable, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", `${POWERSHELL_UTF8}${command}`];
+}
+
+async function runShell(
   subprocess: SubprocessProvider,
   argv: readonly string[],
   request: ShellRunRequest,
+  env: Readonly<Record<string, string>>,
 ): Promise<ShellRunResult> {
   const timeout = new AbortController();
   const timer = request.timeoutMs === undefined
@@ -114,7 +194,7 @@ async function runBash(
       cwd: request.cwd,
       signal,
       maxBytes: request.maxBytes ?? DEFAULT_MAX_BYTES,
-      env: { ...MODEL_ENV },
+      env: { ...env },
     });
     const timedOut = timeout.signal.aborted && !request.signal.aborted;
     return {

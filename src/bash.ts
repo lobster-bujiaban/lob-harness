@@ -11,33 +11,35 @@ export function installBash(
     timeoutMs?: number;
     deniedPrefixes?: readonly string[];
     policy?: SandboxExecutionPolicy;
+    toolName?: "bash" | "pwsh";
   },
 ): () => void {
   const provider = options.provider;
   const timeoutMs = options.timeoutMs ?? 30_000;
   const deniedPrefixes = options.deniedPrefixes ?? [];
   const root = resolve(options.root);
+  const toolName = options.toolName ?? "bash";
   const admitted = new WeakMap<Readonly<ToolExecution>, { command: string; cwd: string; timeoutMs?: number }>();
 
   const disposePolicy = registry.onPreExecute(async (execution, next) => {
-    if (execution.name !== "bash") return next();
+    if (execution.name !== toolName) return next();
     const command = readString(execution.args, "command");
     if (command === undefined) {
-      return { kind: "deny", reason: "bash requires a non-empty command" };
+      return { kind: "deny", reason: `${toolName} requires a non-empty command` };
     }
     if (deniedPrefixes.some((prefix) => command.startsWith(prefix))) {
-      return { kind: "deny", reason: "bash command is disabled by policy" };
+      return { kind: "deny", reason: `${toolName} command is disabled by policy` };
     }
     const timeout = readTimeoutMs(execution.args);
     if (timeout === "invalid") {
-      return { kind: "deny", reason: "bash timeoutMs must be a positive integer" };
+      return { kind: "deny", reason: `${toolName} timeoutMs must be a positive integer` };
     }
     const requested = readString(execution.args, "workdir");
     const cwd = requested === undefined
       ? root
       : isAbsolute(requested) ? resolve(requested) : resolve(root, requested);
     if (!isWithin(root, cwd)) {
-      return { kind: "deny", reason: "bash workdir is outside the allowed root" };
+      return { kind: "deny", reason: `${toolName} workdir is outside the allowed root` };
     }
     admitted.set(execution, {
       command,
@@ -48,12 +50,12 @@ export function installBash(
   });
 
   const disposeTool = registry.register({
-    name: "bash",
-    description: "在工作区根目录执行一条 bash 命令。每次调用都是新的 shell，状态不会保留；用 workdir 而不是 cd。文件写入可能受 sandbox 限制，拒绝时会看到 [sandbox: file access denied]。",
+    name: toolName,
+    description: `在工作区根目录执行一条 ${toolName === "pwsh" ? "PowerShell" : "bash"} 命令。每次调用都是新的 shell，状态不会保留；用 workdir 而不是 cd。文件写入可能受 sandbox 限制。`,
     parameters: {
       type: "object",
       properties: {
-        command: { type: "string", description: "要执行的 bash 命令" },
+        command: { type: "string", description: `要执行的 ${toolName === "pwsh" ? "PowerShell" : "bash"} 命令` },
         workdir: { type: "string", description: "相对工作区根目录的工作目录" },
         timeoutMs: { type: "integer", description: "本次命令超时毫秒" },
       },
@@ -65,7 +67,7 @@ export function installBash(
     async execute(_args, context) {
       const admittedCall = admitted.get(context.execution);
       if (admittedCall === undefined) {
-        throw new ToolError("bash command was not admitted by policy", "SHELL_NOT_ADMITTED");
+        throw new ToolError(`${toolName} command was not admitted by policy`, "SHELL_NOT_ADMITTED");
       }
       return renderShellResult(await provider.run({
         command: admittedCall.command,

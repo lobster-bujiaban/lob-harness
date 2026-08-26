@@ -2,7 +2,7 @@
 
 ## 职责
 
-把模型的 command/workdir/timeout 参数转换为 `ctx.shell.run()` 请求，并渲染有界结果。
+把模型的 command/workdir/timeout 参数转换为 `ctx.shell.run()` 请求，并渲染有界结果。安装器可按平台公开为 `bash` 或 `pwsh`，策略逻辑保持一致。
 
 ## 安全边界
 

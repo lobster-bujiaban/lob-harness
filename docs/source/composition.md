@@ -8,6 +8,8 @@
 
 `loadWebConfig()` 产生 `base + web-server`；`applyProfilePatch()` 按 entry id 替换完整 config；`assembleWebContext()` 按配置顺序安装 session、LLM、fs、shell、sandbox、Agent 等服务。
 
+Shell Provider 根据 `platform` 选择：Windows 使用 PowerShell，其他平台使用 Bash。`platform` 可注入，使 Windows 装配可以在非 Windows CI 中验证。
+
 ## 设计取舍
 
 - profile 是整项替换，不做容易产生歧义的深合并。

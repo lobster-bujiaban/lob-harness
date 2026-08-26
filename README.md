@@ -108,7 +108,7 @@ Web 还提供插件启停、配置保存和教学版热重载。热重载会先�
 
 连续 `parallel` 工具最多并发 4 个；`exclusive` 工具构成双向 barrier。执行可以乱序完成，但结果按模型调用顺序写入。工具还可声明超时，超时后等待 executor 协作式停稳再返回 `TOOL_TIMEOUT`。
 
-文件操作检查词法路径与 realpath，写入使用临时文件加 rename。`bash` 只消费 `ctx.shell`；默认 shell 在 macOS 上通过 Seatbelt 限制到会话工作区，没有可用沙箱后端时失败关闭。审批只允许单次授权，询问和决定都进入审计事件。
+文件操作检查词法路径与 realpath，写入使用临时文件加 rename。macOS/Linux 使用 `bash`，Windows 使用 `pwsh`；两者只消费 `ctx.shell`。默认沙箱目前只有 macOS Seatbelt，Windows 受限模式会失败关闭，只有明确选择 `danger-full-access` 才允许 PowerShell 无沙箱执行。审批只允许单次授权，询问和决定都进入审计事件。
 
 ### 子 Agent、job 与 goal
 
@@ -148,7 +148,7 @@ Web / SSE
 当前实现有意保持最小：
 
 - MCP 只有进程内教学 Provider，没有 stdio/HTTP 传输、自动重连和生产服务器管理。
-- 沙箱仅实现 macOS Seatbelt，没有 Linux Landlock/bwrap 或升权持久授权。
+- 沙箱仅实现 macOS Seatbelt；Windows 已支持 PowerShell，但尚无 Win32 ACL 沙箱，Linux 也没有 Landlock/bwrap。
 - `bash` 是有界前台执行；后台 job 的生产者是子 Agent，不是通用 shell job。
 - goal 只有 create/get/complete，没有暂停、阻塞、预算、自动续跑和多目标。
 - 子 Agent 在同一进程内运行，没有 ACP/Codex 外部代理协议。

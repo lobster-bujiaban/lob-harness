@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { installBash } from "../src/bash.ts";
-import { SandboxBashProvider } from "../src/shell-service.ts";
+import { SandboxBashProvider, SandboxPowerShellProvider } from "../src/shell-service.ts";
 import type { SubprocessProvider, SubprocessResult } from "../src/subprocess-service.ts";
 import {
   LocalSandboxProvider,
@@ -83,6 +83,43 @@ test("受限模式没有可用后端时失败关闭，不会裸跑原 argv", asy
   const result = await registry.execute("bash", { command: "uname" }, new AbortController().signal);
   expect(result).toMatchObject({ isError: true, error: { code: "SANDBOX_UNAVAILABLE" } });
   expect(spawned).toBe(0);
+});
+
+test("Windows PowerShell 仅在 danger-full-access 下绕过缺失的沙箱", async () => {
+  const spawned: string[][] = [];
+  const subprocess: SubprocessProvider = {
+    async spawn(spec) {
+      spawned.push([...spec.argv]);
+      return idle;
+    },
+  };
+  const sandbox: SandboxBackend = {
+    confine() {
+      throw new ToolError("no Windows backend", "SANDBOX_UNAVAILABLE");
+    },
+  };
+  const provider = new SandboxPowerShellProvider(
+    subprocess,
+    sandbox,
+    { mode: "workspace-write", workspaceRoot: "C:\\work" },
+    "pwsh.exe",
+  );
+
+  await expect(provider.run({
+    command: "Get-ChildItem",
+    cwd: "C:\\work",
+    signal: new AbortController().signal,
+  })).rejects.toMatchObject({ code: "SANDBOX_UNAVAILABLE" });
+  expect(spawned).toEqual([]);
+
+  const result = await provider.run({
+    command: "Get-ChildItem",
+    cwd: "C:\\work",
+    signal: new AbortController().signal,
+    sandboxPolicy: { mode: "danger-full-access", workspaceRoot: "C:\\work" },
+  });
+  expect(result.sandbox).toEqual({ mode: "danger-full-access", denied: false, enforcement: "none" });
+  expect(spawned[0]?.[0]).toBe("pwsh.exe");
 });
 
 test("sandbox 拒绝是可回放结果，不是基础设施失败", async () => {

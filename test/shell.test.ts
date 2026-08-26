@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { installBash } from "../src/bash.ts";
-import { LocalBashProvider } from "../src/shell-service.ts";
+import { LocalBashProvider, LocalPowerShellProvider } from "../src/shell-service.ts";
 import type { ShellProvider, ShellRunResult } from "../src/shell-service.ts";
 import { LocalSubprocessProvider, scrubbedParentEnv } from "../src/subprocess-service.ts";
 import type { SubprocessProvider } from "../src/subprocess-service.ts";
@@ -122,6 +122,30 @@ test("本地 bash 执行器只把 bash -c 交给 subprocess seam", async () => {
   await expect(registry.execute("bash", { command: "uname" }, new AbortController().signal))
     .resolves.toEqual({ output: "from-subprocess\n[exit code: 0]", isError: false });
   expect(spawned).toEqual([["bash", "-c", "uname"]]);
+});
+
+test("PowerShell 执行器使用单个 Command argv 并固定 UTF-8", async () => {
+  const spawned: Array<{ argv: string[]; env?: Record<string, string> }> = [];
+  const subprocess: SubprocessProvider = {
+    async spawn(spec) {
+      spawned.push({ argv: [...spec.argv], env: spec.env });
+      return { exitCode: 0, signal: null, stdout: "你好", stderr: "", truncated: false };
+    },
+  };
+  const provider = new LocalPowerShellProvider(subprocess, "pwsh.exe");
+  const result = await provider.run({
+    command: "Write-Output 你好",
+    cwd: "C:\\work",
+    signal: new AbortController().signal,
+  });
+
+  expect(result.stdout).toBe("你好");
+  expect(spawned[0]?.argv.slice(0, 5)).toEqual([
+    "pwsh.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
+  ]);
+  expect(spawned[0]?.argv[5]).toContain("[Console]::OutputEncoding");
+  expect(spawned[0]?.argv[5]).toContain("Write-Output 你好");
+  expect(spawned[0]?.env).not.toHaveProperty("TERM");
 });
 
 test("bash 工具源码不直接调用 Node 进程 API", async () => {
