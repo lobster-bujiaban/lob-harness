@@ -22,6 +22,7 @@ const draft = document.querySelector("#draft");
 const send = document.querySelector("#send");
 const stop = document.querySelector("#stop");
 const composerHint = document.querySelector("#composer-hint");
+const attachButton = document.querySelector(".attach-button");
 const newSession = document.querySelector("#new-session");
 const clearSessions = document.querySelector("#clear-sessions");
 const addWorkspace = document.querySelector("#add-workspace");
@@ -1523,7 +1524,7 @@ function openWorkspaceMenu(anchor, root) {
   document.querySelector(".workspace-menu")?.remove();
   const menu = document.createElement("div");
   menu.className = "workspace-menu";
-  menu.innerHTML = `<button type="button" data-action="video"><span>▷</span>生成宣传视频</button><button type="button" data-action="rename"><span>✎</span>重命名</button><button type="button" data-action="delete" class="danger"><span>♲</span>删除工作区</button>`;
+  menu.innerHTML = `<button type="button" data-action="rename"><span>✎</span>重命名</button><button type="button" data-action="delete" class="danger"><span>♲</span>删除工作区</button>`;
   const rect = anchor.getBoundingClientRect();
   menu.style.top = `${rect.bottom - 3}px`;
   menu.style.left = `${Math.min(rect.right - 80, window.innerWidth - 248)}px`;
@@ -1534,11 +1535,6 @@ function openWorkspaceMenu(anchor, root) {
   setTimeout(() => document.addEventListener("click", close, { once: true }));
   menu.addEventListener("click", (event) => {
     const action = event.target.closest("button")?.dataset.action;
-    if (action === "video") {
-      menu.remove();
-      void startPromoVideo(root);
-      return;
-    }
     if (action === "rename") {
       const name = window.prompt("重命名工作区", workspaceAliases[root] ?? pathName(root));
       if (name !== null && name.trim().length > 0) workspaceAliases[root] = name.trim();
@@ -1552,6 +1548,30 @@ function openWorkspaceMenu(anchor, root) {
     saveWorkspacePreferences();
     menu.remove();
     renderSessionTree(listedSessions);
+  });
+}
+
+function openComposerAddMenu() {
+  document.querySelector(".composer-add-menu")?.remove();
+  const menu = document.createElement("div");
+  menu.className = "composer-add-menu";
+  const workspaceName = selectedWorkspace
+    ? (workspaceAliases[selectedWorkspace] ?? pathName(selectedWorkspace))
+    : "未分组";
+  menu.innerHTML = `<button type="button" data-action="promo-video"><span>▷</span><span><strong>生成宣传视频</strong><small></small></span></button>`;
+  menu.querySelector("small").textContent = `基于 ${workspaceName} 的源码生成`;
+  const rect = attachButton.getBoundingClientRect();
+  menu.style.left = `${rect.left}px`;
+  menu.style.bottom = `${window.innerHeight - rect.top + 8}px`;
+  document.body.append(menu);
+  const close = (event) => {
+    if (!menu.contains(event.target) && event.target !== attachButton) menu.remove();
+  };
+  setTimeout(() => document.addEventListener("click", close, { once: true }));
+  menu.addEventListener("click", (event) => {
+    if (event.target.closest("button")?.dataset.action !== "promo-video") return;
+    menu.remove();
+    void startPromoVideo(selectedWorkspace);
   });
 }
 
@@ -1849,6 +1869,15 @@ composer.addEventListener("submit", (event) => {
   const text = draft.value.trim();
   if (text.length === 0 || send.disabled) return;
   void sendTurn(text);
+});
+attachButton.addEventListener("click", () => {
+  if (managingSessions) return;
+  const menu = document.querySelector(".composer-add-menu");
+  if (menu !== null) {
+    menu.remove();
+    return;
+  }
+  openComposerAddMenu();
 });
 newSession.addEventListener("click", () => {
   void createSession().catch((err) => {
