@@ -4,3 +4,4 @@ tmp/
 .env.*
 !.env.example
 docs/插件清单.md
+videos/
