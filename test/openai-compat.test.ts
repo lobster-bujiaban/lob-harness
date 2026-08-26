@@ -118,7 +118,6 @@ test("真实适配器按标准协议完成 echo 工具闭环", async () => {
           name: "read_file",
           parameters: {
             type: "object",
-            required: ["path"],
           },
         },
       },
@@ -136,6 +135,16 @@ test("真实适配器按标准协议完成 echo 工具闭环", async () => {
           parameters: {
             type: "object",
             required: ["path", "content"],
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "edit",
+          parameters: {
+            type: "object",
+            required: ["old_string", "new_string"],
           },
         },
       },

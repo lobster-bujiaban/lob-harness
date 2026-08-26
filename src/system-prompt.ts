@@ -42,12 +42,54 @@ export class SystemPromptRegistry {
   }
 }
 
+export function withStepBudget(
+  base: SystemPromptProvider,
+  options: { remaining: number; maxSteps: number; closing?: boolean },
+): SystemPromptProvider {
+  return {
+    register: (section) => base.register(section),
+    render() {
+      const hint = options.closing
+        ? "工具已执行完。只输出结论，不要再调用工具。"
+        : options.remaining <= 5
+          ? `还剩 ${options.remaining} 步（上限 ${options.maxSteps}）。已定位就立刻 edit 改代码并给出结论；禁止 git log，禁止用 bash 改文件或继续扫前端。`
+          : "";
+      const text = base.render();
+      if (hint.length === 0) return text;
+      return text.length === 0 ? hint : `${text}\n\n${hint}`;
+    },
+    messages() {
+      const content = this.render();
+      return content.length === 0 ? [] : [{ role: "system", content }];
+    },
+  };
+}
+
+export function withInstructionText(
+  base: SystemPromptProvider,
+  text: string,
+): SystemPromptProvider {
+  const extra = text.trim();
+  if (extra.length === 0) return base;
+  return {
+    register: (section) => base.register(section),
+    render() {
+      const rendered = base.render();
+      return rendered.length === 0 ? extra : `${rendered}\n\n${extra}`;
+    },
+    messages() {
+      const content = this.render();
+      return content.length === 0 ? [] : [{ role: "system", content }];
+    },
+  };
+}
+
 export const defaultCodingPrompt = `你是工作区里的编码助手。用户贴出缺陷或接口报错时，要定位并改代码，不要只分析。
 
-- 搜代码用 grep，不要用 bash grep/find，也不要用 list_files 扫整仓。
-- HTTP 5xx 或 /device、/api 一类路径先搜服务端实现，不要假设仓库只有前端。
-- list_files 会跳过 node_modules、dist、target、build；根目录会先列出子目录。
-- 改文件用 write_file。`;
+- 搜代码用 grep，读文件用 read_file（大文件用 offset/limit 续读）。不要用 bash grep/find/cat/sed，也不要用 list_files 扫整仓。
+- HTTP 5xx 或 /device、/api 一类路径先搜服务端实现。设备 token / bz-dt 请求没有登录用户，先查 getUser() 空指针，不要改前端补参数。
+- 改已有文件用 edit（old_string 必须唯一匹配）。只有新建或整文件覆盖才用 write_file。禁止 python/sed/heredoc 改文件。定位到就改，不要 git log / 翻网关。
+- list_files 会跳过 node_modules、dist、target、build；根目录会先列出子目录。`;
 
 export const emptySystemPromptRegistry = new SystemPromptRegistry();
 

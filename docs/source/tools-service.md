@@ -10,7 +10,7 @@
 
 ## 子级约束
 
-`CHILD_TOOL_EXCLUDE` 排除 subagent、write_file、job 和 goal 工具，使子 Agent 保持只读且不能递归委派。
+`CHILD_TOOL_EXCLUDE` 排除 subagent、write_file、edit、job 和 goal 工具，使子 Agent 保持只读且不能递归委派。
 
 ## 设计取舍
 

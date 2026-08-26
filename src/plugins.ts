@@ -49,8 +49,8 @@ export const BUILTIN_PLUGINS: readonly PluginManifest[] = Object.freeze([
   {
     id: "workspace-files",
     name: "Workspace Files",
-    description: "工作区文件插件，提供受根目录约束的 read_file、list_files、write_file 与 grep。",
-    tools: ["read_file", "list_files", "write_file", "grep"],
+    description: "工作区文件插件，提供受根目录约束的 read_file、list_files、write_file、edit 与 grep。",
+    tools: ["read_file", "list_files", "write_file", "edit", "grep"],
     configurable: true,
     defaultEnabled: true,
   },

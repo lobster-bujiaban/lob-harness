@@ -22,6 +22,7 @@ test("插件发现、启停、配置和持久化共同决定工具注册表", as
     "read_file",
     "list_files",
     "write_file",
+    "edit",
     "grep",
     "bash",
   ]);
@@ -73,13 +74,14 @@ test("插件可重复 reload，旧贡献先撤销且新注册不重复", async (
   await expect(store.reload("workspace-files")).resolves.toMatchObject({ phase: "active" });
 
   expect(store.context.tools.entries()).toEqual(["core-tools", "workspace-shell", "subagent", "tool-jobs", "tool-goal", "workspace-files"]);
-  expect(before.schemas().map((tool) => tool.name)).toEqual(["echo", "read_file", "list_files", "write_file", "grep", "bash"]);
+  expect(before.schemas().map((tool) => tool.name)).toEqual(["echo", "read_file", "list_files", "write_file", "edit", "grep", "bash"]);
   expect((await store.createToolRegistry(directory)).schemas().map((tool) => tool.name)).toEqual([
     "echo",
     "bash",
     "read_file",
     "list_files",
     "write_file",
+    "edit",
     "grep",
   ]);
 });

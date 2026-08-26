@@ -138,6 +138,7 @@ test("job 立即返回，父级可继续，结果只在子日志", async () => {
   expect(probes[0]?.seenTools[0]).toContain("job");
   expect(probes[1]?.seenTools[0]).not.toContain("job");
   expect(probes[1]?.seenTools[0]).not.toContain("write_file");
+  expect(probes[1]?.seenTools[0]).not.toContain("edit");
 
   release();
   const settled = await ctx.jobs.wait(started.jobId, "parent.jsonl");

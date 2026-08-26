@@ -21,6 +21,21 @@ async function fixture() {
   return { base, root, outside, registry };
 }
 
+function expectedRead(displayPath: string, text: string, offset = 1, limit = 2000): string {
+  const lines = text.split(/\r?\n/u);
+  const totalLines = text.length === 0 ? 0 : lines.length;
+  if (totalLines === 0) {
+    return `<path>${displayPath}</path>\n<type>file</type>\n<content>\n(End of file - total 0 lines)\n</content>`;
+  }
+  const selected = lines.slice(offset - 1, offset - 1 + limit);
+  const endLine = offset + selected.length - 1;
+  const footer = endLine < totalLines
+    ? `(Showing lines ${offset}-${endLine} of ${totalLines}. Use offset=${endLine + 1} to continue.)`
+    : `(End of file - total ${totalLines} lines)`;
+  const body = selected.map((line, index) => `${offset + index}: ${line}`).join("\n");
+  return `<path>${displayPath}</path>\n<type>file</type>\n<content>\n${body}\n\n${footer}\n</content>`;
+}
+
 test("read_file 读取允许根目录内的 UTF-8 文件", async () => {
   const { registry } = await fixture();
 
@@ -29,7 +44,28 @@ test("read_file 读取允许根目录内的 UTF-8 文件", async () => {
     { path: "inside.txt" },
     new AbortController().signal,
     "read-1",
-  )).resolves.toEqual({ output: "允许读取", isError: false });
+  )).resolves.toEqual({ output: expectedRead("inside.txt", "允许读取"), isError: false });
+});
+
+test("read_file 接受 file_path，并按 offset/limit 返回窗口", async () => {
+  const { root, registry } = await fixture();
+  await writeFile(join(root, "window.txt"), ["a", "b", "c", "d"].join("\n"), "utf8");
+
+  await expect(registry.execute(
+    "read_file",
+    { file_path: "window.txt", offset: 2, limit: 2 },
+    new AbortController().signal,
+  )).resolves.toEqual({
+    output: expectedRead("window.txt", ["a", "b", "c", "d"].join("\n"), 2, 2),
+    isError: false,
+  });
+
+  const invalid = await registry.execute(
+    "read_file",
+    { path: "window.txt", offset: 0 },
+    new AbortController().signal,
+  );
+  expect(invalid).toMatchObject({ isError: true, error: { code: "DENIED" } });
 });
 
 test("read_file 策略拒绝 ../、根外绝对路径和符号链接逃逸", async () => {
@@ -73,6 +109,7 @@ test("卸载 read_file 同时移除工具和路径策略", async () => {
   const dispose = installReadFile(registry, { root: base, provider: new LocalFsProvider() });
   expect(registry.get("read_file")).toBeDefined();
   expect(registry.get("write_file")).toBeDefined();
+  expect(registry.get("edit")).toBeDefined();
   expect(registry.get("grep")).toBeDefined();
 
   dispose();
@@ -80,6 +117,7 @@ test("卸载 read_file 同时移除工具和路径策略", async () => {
 
   expect(registry.get("read_file")).toBeUndefined();
   expect(registry.get("write_file")).toBeUndefined();
+  expect(registry.get("edit")).toBeUndefined();
   expect(registry.get("grep")).toBeUndefined();
   expect(await registry.execute("other", {}, new AbortController().signal))
     .toMatchObject({ isError: true, error: { code: "UNKNOWN_TOOL" } });
@@ -182,7 +220,7 @@ test("write_file 可在根目录内创建、覆盖，并创建缺失的父目录
     "read_file",
     { path: "nested/note.txt" },
     new AbortController().signal,
-  )).resolves.toEqual({ output: "", isError: false });
+  )).resolves.toEqual({ output: expectedRead("nested/note.txt", ""), isError: false });
 });
 
 test("write_file 策略拒绝 ../、根外绝对路径和符号链接逃逸", async () => {
@@ -243,12 +281,52 @@ test("文件工具可替换为非本地 Fs Provider", async () => {
   installReadFile(registry, { root: "/virtual", provider });
 
   await expect(registry.execute("read_file", { path: "remote.txt" }, new AbortController().signal))
-    .resolves.toEqual({ output: "virtual", isError: false });
+    .resolves.toEqual({ output: expectedRead("remote.txt", "virtual"), isError: false });
   await expect(registry.execute("list_files", {}, new AbortController().signal))
     .resolves.toEqual({ output: "remote.txt", isError: false });
   await expect(registry.execute("write_file", { path: "saved.txt", content: "ok" }, new AbortController().signal))
     .resolves.toEqual({ output: "wrote saved.txt (2 bytes)", isError: false });
   expect(files.get("/virtual/saved.txt")).toBe("ok");
+});
+
+test("edit 对已有文件做唯一字面量替换，多处匹配需 replace_all", async () => {
+  const { root, registry } = await fixture();
+  await writeFile(join(root, "src.txt"), "foo bar foo", "utf8");
+
+  const ambiguous = await registry.execute(
+    "edit",
+    { path: "src.txt", old_string: "foo", new_string: "baz" },
+    new AbortController().signal,
+  );
+  expect(ambiguous).toMatchObject({ isError: true, error: { code: "FS_EDIT_AMBIGUOUS" } });
+  await expect(readFile(join(root, "src.txt"), "utf8")).resolves.toBe("foo bar foo");
+
+  await expect(registry.execute(
+    "edit",
+    { file_path: "src.txt", old_string: "foo", new_string: "baz", replace_all: true },
+    new AbortController().signal,
+  )).resolves.toEqual({
+    output: "The file src.txt has been updated. All occurrences were successfully replaced.",
+    isError: false,
+  });
+  await expect(readFile(join(root, "src.txt"), "utf8")).resolves.toBe("baz bar baz");
+
+  await expect(registry.execute(
+    "edit",
+    { path: "src.txt", old_string: "bar", new_string: "qux" },
+    new AbortController().signal,
+  )).resolves.toEqual({
+    output: "The file src.txt has been updated successfully.",
+    isError: false,
+  });
+  await expect(readFile(join(root, "src.txt"), "utf8")).resolves.toBe("baz qux baz");
+
+  const missing = await registry.execute(
+    "edit",
+    { path: "src.txt", old_string: "nope", new_string: "x" },
+    new AbortController().signal,
+  );
+  expect(missing).toMatchObject({ isError: true, error: { code: "FS_EDIT_NOT_FOUND" } });
 });
 
 test("Loop 源码不出现 write_file 分支", () => {

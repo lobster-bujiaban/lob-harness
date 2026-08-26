@@ -6,6 +6,8 @@ import {
   type ToolRegistry,
 } from "./tools.ts";
 
+export const READ_LIMIT = 2000;
+
 export function installReadFile(
   registry: ToolRegistry,
   options: { root: string; provider: FsProvider; maxBytes?: number },
@@ -22,6 +24,10 @@ export function installReadFile(
     const requested = readPathArgument(execution.args);
     if (requested === undefined) {
       return { kind: "deny", reason: "read_file requires a non-empty path" };
+    }
+    const window = tryParseReadWindow(execution.args);
+    if (window === "invalid") {
+      return { kind: "deny", reason: "read_file offset/limit must be positive integers within range" };
     }
     const candidate = isAbsolute(requested) ? resolve(requested) : resolve(configuredRoot, requested);
     if (!isWithin(configuredRoot, candidate)) {
@@ -67,21 +73,24 @@ export function installReadFile(
 
   const disposeReadFile = registry.register({
     name: "read_file",
-    description: "读取允许根目录内的 UTF-8 文本文件。",
+    description: "读取允许根目录内的 UTF-8 文本文件，返回带行号的窗口。大文件用 offset/limit 续读，不要用 bash cat。",
     parameters: {
       type: "object",
       properties: {
         path: { type: "string", description: "相对允许根目录的文件路径" },
+        file_path: { type: "string", description: "path 的别名" },
+        offset: { type: "integer", description: "从第几行开始，从 1 计，默认 1" },
+        limit: { type: "integer", description: `最多返回多少行，默认 ${READ_LIMIT}，最大 ${READ_LIMIT}` },
       },
-      required: ["path"],
       additionalProperties: false,
     },
     executionMode: { kind: "parallel" },
-    async execute(_args, context) {
+    async execute(args, context) {
       const target = admitted.get(context.execution);
       if (target === undefined) {
         throw new ToolError("read_file path was not admitted by policy", "FS_NOT_ADMITTED");
       }
+      const window = parseReadWindow(args);
       const metadata = await provider.stat(target);
       if (metadata.kind !== "file") {
         throw new ToolError("read_file target is not a regular file", "FS_NOT_FILE");
@@ -89,7 +98,10 @@ export function installReadFile(
       if (metadata.size > maxBytes) {
         throw new ToolError(`read_file target exceeds ${maxBytes} bytes`, "FS_TOO_LARGE");
       }
-      return provider.readText(target, context.signal);
+      const text = await provider.readText(target, context.signal);
+      const root = await canonicalRoot;
+      const displayed = relative(root, target).replaceAll("\\", "/") || basename(target);
+      return formatReadWindow(displayed, text, window);
     },
   });
 
@@ -185,6 +197,94 @@ export function installReadFile(
       const root = await canonicalRoot;
       const displayed = relative(root, target).replaceAll("\\", "/") || basename(target);
       return `wrote ${displayed} (${bytes} bytes)`;
+    },
+  });
+
+  const disposeEditPolicy = registry.onPreExecute(async (execution, next) => {
+    if (execution.name !== "edit") return next();
+    const requested = readPathArgument(execution.args);
+    if (requested === undefined) {
+      return { kind: "deny", reason: "edit requires a non-empty path" };
+    }
+    const oldString = readEditString(execution.args, "old_string");
+    const newString = readEditString(execution.args, "new_string");
+    if (oldString === undefined || oldString.length === 0) {
+      return { kind: "deny", reason: "edit old_string must be a non-empty string" };
+    }
+    if (newString === undefined) {
+      return { kind: "deny", reason: "edit new_string must be a string" };
+    }
+    if (oldString === newString) {
+      return { kind: "deny", reason: "edit old_string and new_string must differ" };
+    }
+    const candidate = isAbsolute(requested) ? resolve(requested) : resolve(configuredRoot, requested);
+    if (!isWithin(configuredRoot, candidate)) {
+      return { kind: "deny", reason: "edit path is outside the allowed root" };
+    }
+    try {
+      const [root, target] = await Promise.all([
+        canonicalRoot,
+        provider.canonicalize(candidate),
+      ]);
+      if (!isWithin(root, target)) {
+        return { kind: "deny", reason: "edit path resolves outside the allowed root" };
+      }
+      if ((await provider.stat(target)).kind !== "file") {
+        return { kind: "deny", reason: "edit path must be an existing file" };
+      }
+      admitted.set(execution, target);
+    } catch (error) {
+      if (isMissing(error)) throw new ToolError("edit target does not exist", "FS_NOT_FOUND", { cause: error });
+      throw error;
+    }
+    return next();
+  });
+
+  const disposeEdit = registry.register({
+    name: "edit",
+    description: "在已有 UTF-8 文件里做字面量替换。默认 old_string 必须只出现一次；多处匹配时改用更长上下文或 replace_all。改代码优先用 edit，不要用 write_file 覆盖整文件，也不要用 bash python/sed。",
+    parameters: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "相对允许根目录的文件路径" },
+        file_path: { type: "string", description: "path 的别名" },
+        old_string: { type: "string", description: "要替换的原文，必须精确匹配" },
+        new_string: { type: "string", description: "替换后的文本，空字符串表示删除" },
+        replace_all: { type: "boolean", description: "替换全部匹配，默认 false" },
+      },
+      required: ["old_string", "new_string"],
+      additionalProperties: false,
+    },
+    executionMode: { kind: "exclusive" },
+    async execute(args, context) {
+      const target = admitted.get(context.execution);
+      if (target === undefined) {
+        throw new ToolError("edit path was not admitted by policy", "FS_NOT_ADMITTED");
+      }
+      const oldString = readEditString(args, "old_string");
+      const newString = readEditString(args, "new_string");
+      if (oldString === undefined || newString === undefined) {
+        throw new ToolError("edit requires old_string and new_string", "INVALID_ARGUMENT");
+      }
+      const replaceAll = readReplaceAll(args);
+      const text = await provider.readText(target, context.signal);
+      const matches = countLiteral(text, oldString);
+      if (matches === 0) {
+        throw new ToolError("edit old_string was not found", "FS_EDIT_NOT_FOUND");
+      }
+      if (matches > 1 && !replaceAll) {
+        throw new ToolError(
+          `edit old_string matched ${matches} times; provide more context or set replace_all`,
+          "FS_EDIT_AMBIGUOUS",
+        );
+      }
+      const next = replaceAll ? text.split(oldString).join(newString) : text.replace(oldString, newString);
+      await provider.writeText(target, next, context.signal);
+      const root = await canonicalRoot;
+      const displayed = relative(root, target).replaceAll("\\", "/") || basename(target);
+      return replaceAll
+        ? `The file ${displayed} has been updated. All occurrences were successfully replaced.`
+        : `The file ${displayed} has been updated successfully.`;
     },
   });
 
@@ -303,6 +403,8 @@ export function installReadFile(
   return () => {
     disposeGrep();
     disposeGrepPolicy();
+    disposeEdit();
+    disposeEditPolicy();
     disposeWriteFile();
     disposeListFiles();
     disposeReadFile();
@@ -455,7 +557,7 @@ function normalizeRelative(path: string): string {
 }
 
 function readPathArgument(args: unknown): string | undefined {
-  return readStringArgument(args, "path");
+  return readStringArgument(args, "path") ?? readStringArgument(args, "file_path");
 }
 
 function readStringArgument(args: unknown, name: string): string | undefined {
@@ -488,6 +590,66 @@ function readContentArgument(args: unknown): string | undefined {
   if (typeof args !== "object" || args === null || !("content" in args)) return undefined;
   const value = (args as { content: unknown }).content;
   return typeof value === "string" ? value : undefined;
+}
+
+function readEditString(args: unknown, name: "old_string" | "new_string"): string | undefined {
+  if (typeof args !== "object" || args === null || !(name in args)) return undefined;
+  const value = (args as Record<string, unknown>)[name];
+  return typeof value === "string" ? value : undefined;
+}
+
+function readReplaceAll(args: unknown): boolean {
+  if (typeof args !== "object" || args === null || !("replace_all" in args)) return false;
+  return (args as { replace_all?: unknown }).replace_all === true;
+}
+
+function countLiteral(haystack: string, needle: string): number {
+  if (needle.length === 0) return 0;
+  return haystack.split(needle).length - 1;
+}
+
+type ReadWindow = { offset: number; limit: number };
+
+function tryParseReadWindow(args: unknown): ReadWindow | "invalid" {
+  try {
+    return parseReadWindow(args);
+  } catch {
+    return "invalid";
+  }
+}
+
+function parseReadWindow(args: unknown): ReadWindow {
+  const value = typeof args === "object" && args !== null ? args as Record<string, unknown> : {};
+  const offset = value.offset ?? 1;
+  const limit = value.limit ?? READ_LIMIT;
+  if (!Number.isInteger(offset) || Number(offset) < 1) {
+    throw new ToolError("read_file offset must be an integer >= 1", "INVALID_ARGUMENT");
+  }
+  if (!Number.isInteger(limit) || Number(limit) < 1 || Number(limit) > READ_LIMIT) {
+    throw new ToolError(`read_file limit must be an integer between 1 and ${READ_LIMIT}`, "INVALID_ARGUMENT");
+  }
+  return { offset: Number(offset), limit: Number(limit) };
+}
+
+function formatReadWindow(displayPath: string, text: string, window: ReadWindow): string {
+  const lines = text.split(/\r?\n/u);
+  const totalLines = text.length === 0 ? 0 : lines.length;
+  if (totalLines === 0) {
+    return `<path>${displayPath}</path>\n<type>file</type>\n<content>\n(End of file - total 0 lines)\n</content>`;
+  }
+  if (window.offset > totalLines) {
+    throw new ToolError(
+      `read_file offset ${window.offset} is past end of file (${totalLines} lines)`,
+      "INVALID_ARGUMENT",
+    );
+  }
+  const selected = lines.slice(window.offset - 1, window.offset - 1 + window.limit);
+  const endLine = window.offset + selected.length - 1;
+  const footer = endLine < totalLines
+    ? `(Showing lines ${window.offset}-${endLine} of ${totalLines}. Use offset=${endLine + 1} to continue.)`
+    : `(End of file - total ${totalLines} lines)`;
+  const body = selected.map((line, index) => `${window.offset + index}: ${line}`).join("\n");
+  return `<path>${displayPath}</path>\n<type>file</type>\n<content>\n${body}\n\n${footer}\n</content>`;
 }
 
 function isWithin(root: string, target: string): boolean {

@@ -10,7 +10,8 @@ import { defaultToolRegistry } from "./default-tools.ts";
 import { persistenceForPath, type SessionPersistence } from "./session-persistence.ts";
 import { sessionStoreFor } from "./session-store.ts";
 import { fitContext, type ContextBudget } from "./context.ts";
-import { emptySystemPromptRegistry, type SystemPromptProvider } from "./system-prompt.ts";
+import { emptySystemPromptRegistry, withInstructionText, withStepBudget, type SystemPromptProvider } from "./system-prompt.ts";
+import { loadAgentInstructions, sessionWorkspaceRoot } from "./agent-instructions.ts";
 
 export type PreStepDecision =
   | { kind: "reject" }
@@ -55,7 +56,7 @@ export type RunTurnOptions = {
   contextBudget?: ContextBudget;
 };
 
-export const DEFAULT_MAX_STEPS = 32;
+export const DEFAULT_MAX_STEPS = 100;
 
 export async function runTurn(
   path: string,
@@ -114,6 +115,8 @@ export async function runTurn(
       for (const text of pendingUserTexts) await record({ type: "user", text });
       pendingUserTexts = [];
 
+      const basePrompts = options?.systemPrompts ?? emptySystemPromptRegistry;
+      const remaining = maxSteps - index;
       const reply = await request(target.id, llm, record, {
         turn,
         step,
@@ -121,7 +124,7 @@ export async function runTurn(
         requestError: options?.requestError,
         toolRegistry,
         persistence: target.persistence,
-        systemPrompts: options?.systemPrompts ?? emptySystemPromptRegistry,
+        systemPrompts: withStepBudget(basePrompts, { remaining, maxSteps }),
         contextBudget: options?.contextBudget,
       });
       if (reply.kind === "text") {
@@ -176,6 +179,27 @@ export async function runTurn(
           ...(result.isError ? { isError: true, error: result.error } : {}),
         });
       }
+      if (index === maxSteps - 1) {
+        const closing = await request(target.id, llm, record, {
+          turn,
+          step,
+          signal,
+          requestError: options?.requestError,
+          toolRegistry,
+          persistence: target.persistence,
+          systemPrompts: withStepBudget(basePrompts, { remaining: 0, maxSteps, closing: true }),
+          contextBudget: options?.contextBudget,
+        });
+        if (closing.kind === "text") {
+          await record({ type: "assistant", text: closing.text });
+          await record({ type: "step_end", turn, step });
+          openStep = undefined;
+          pendingUserTexts = await options?.claimNextStep?.(turn) ?? [];
+          if (pendingUserTexts.length > 0) continue;
+          await record({ type: "turn_end", turn, reason: { kind: "completed" } });
+          return;
+        }
+      }
       await record({ type: "step_end", turn, step });
       openStep = undefined;
       pendingUserTexts = await options?.claimNextStep?.(turn) ?? [];
@@ -222,7 +246,10 @@ async function complete(
   const events = await persistence.load(path);
   let conversation = projectMessages(events);
   const tools = toolRegistry.schemas();
-  const system = systemPrompts.messages();
+  const workspaceRoot = sessionWorkspaceRoot(events);
+  const instructions = workspaceRoot === undefined ? "" : await loadAgentInstructions(workspaceRoot);
+  const prompts = withInstructionText(systemPrompts, instructions);
+  const system = prompts.messages();
   const compaction = fitContext(conversation, system, tools, contextBudget);
   if (compaction !== undefined) {
     const last = events.at(-1) as (SessionEvent & { seq?: number }) | undefined;

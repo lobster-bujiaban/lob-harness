@@ -38,7 +38,7 @@ test("连续两次 echo 后再给文本，正常结束", async () => {
   ]);
 });
 
-test("maxSteps=1 时第一次工具后停止，日志里有截断原因", async () => {
+test("maxSteps=1 时第一次工具后若收尾仍要调工具，则截断", async () => {
   const path = await sessionPath();
   const llm = new FakeLlm([
     { kind: "tool", calls: [{ id: "1", name: "echo", args: { text: "one" } }] },
@@ -55,6 +55,7 @@ test("maxSteps=1 时第一次工具后停止，日志里有截断原因", async 
     "request_start", "request_end",
     "tool_call",
     "tool_result",
+    "request_start", "request_end",
     "step_end",
     "end",
     "turn_end",
@@ -64,6 +65,34 @@ test("maxSteps=1 时第一次工具后停止，日志里有截断原因", async 
     type: "turn_end",
     turn: 1,
     reason: { kind: "max_steps" },
+  });
+});
+
+test("maxSteps=1 时工具执行完后允许一次结论文本", async () => {
+  const path = await sessionPath();
+  const llm = new FakeLlm([
+    { kind: "tool", calls: [{ id: "1", name: "echo", args: { text: "one" } }] },
+    { kind: "text", text: "已经改完" },
+  ]);
+
+  await runTurn(path, llm, "echo 一次", { maxSteps: 1 });
+
+  const events = await load(path);
+  expect(events.map((event) => event.type)).toEqual([
+    "turn_start", "step_start",
+    "user",
+    "request_start", "request_end",
+    "tool_call",
+    "tool_result",
+    "request_start", "request_end",
+    "assistant",
+    "step_end",
+    "turn_end",
+  ]);
+  expect(events.at(-1)).toEqual({
+    type: "turn_end",
+    turn: 1,
+    reason: { kind: "completed" },
   });
 });
 

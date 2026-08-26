@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -89,4 +89,57 @@ test("压缩无进展时通过 requestError 暴露 CONTEXT_WINDOW_EXCEEDED 且�
   })).rejects.toMatchObject({ code: "CONTEXT_WINDOW_EXCEEDED" });
   expect(failures).toEqual(["CONTEXT_WINDOW_EXCEEDED"]);
   expect((await load(path)).filter((event) => event.type === "request_start")).toHaveLength(1);
+});
+
+test("有 workspace_root 时注入 ~/.dsh 与工作区 AGENTS.md", async () => {
+  const home = await mkdtemp(join(tmpdir(), "tiny-harness-dsh-home-"));
+  const workspace = await mkdtemp(join(tmpdir(), "tiny-harness-agents-ws-"));
+  const path = join(workspace, "session.jsonl");
+  await writeFile(join(home, "AGENTS.md"), "全局规则：先 grep", "utf8");
+  await writeFile(join(workspace, "AGENTS.md"), "工作区规则：只改后端", "utf8");
+  await append(path, { type: "workspace_root", path: workspace });
+  const previous = process.env.DSH_HOME;
+  process.env.DSH_HOME = home;
+  try {
+    const requests: ModelMessage[][] = [];
+    const llm = {
+      async complete(messages: ModelMessage[]) {
+        requests.push(messages);
+        return { kind: "text" as const, text: "ok" };
+      },
+    };
+    await runTurn(path, llm, "fix");
+    const system = requests[0]?.find((message) => message.role === "system")?.content ?? "";
+    expect(system).toContain("~/.dsh/AGENTS.md");
+    expect(system).toContain("全局规则：先 grep");
+    expect(system).toContain("工作区规则：只改后端");
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previous;
+  }
+});
+
+test("没有 workspace_root 时不注入 home AGENTS.md", async () => {
+  const home = await mkdtemp(join(tmpdir(), "tiny-harness-dsh-skip-"));
+  const dir = await mkdtemp(join(tmpdir(), "tiny-harness-no-ws-"));
+  const path = join(dir, "session.jsonl");
+  await writeFile(join(home, "AGENTS.md"), "不应出现的全局规则", "utf8");
+  const previous = process.env.DSH_HOME;
+  process.env.DSH_HOME = home;
+  try {
+    const requests: ModelMessage[][] = [];
+    const llm = {
+      async complete(messages: ModelMessage[]) {
+        requests.push(messages);
+        return { kind: "text" as const, text: "ok" };
+      },
+    };
+    await runTurn(path, llm, "hello");
+    const joined = (requests[0] ?? []).map((message) => message.content).join("\n");
+    expect(joined).not.toContain("不应出现的全局规则");
+    expect(joined).not.toContain("~/.dsh/AGENTS.md");
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previous;
+  }
 });

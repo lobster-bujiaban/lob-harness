@@ -123,7 +123,44 @@ const TYPE_LABEL = {
   end: "结束",
 };
 
+const TOOL_TITLE = {
+  bash: "Bash",
+  grep: "Grep",
+  read_file: "Read",
+  write_file: "Write",
+  edit: "Edit",
+  list_files: "List",
+  echo: "Echo",
+  get_goal: "Goal",
+  subagent: "Subagent",
+  job: "Job",
+};
+
+const TRANSCRIPT_SKIP = new Set([
+  "context_compacted",
+  "usage",
+  "turn_start",
+  "turn_end",
+  "step_start",
+  "step_end",
+  "request_start",
+  "request_end",
+  "approval_asked",
+  "approval_decided",
+  "inbox_inserted",
+  "inbox_claimed",
+  "workspace_root",
+  "subagent_descriptor",
+  "subagent_started",
+  "subagent_ended",
+  "job_descriptor",
+  "job_started",
+  "job_ended",
+  "goal_change",
+]);
+
 let current = null;
+let liveThink = null;
 const runningSessions = new Map();
 let managingSessions = false;
 let tmpSessionCount = 0;
@@ -635,10 +672,73 @@ function renderMarkdown(target, text) {
   }
 }
 
+function lastNonEmptyLine(text) {
+  const lines = text.split(/\r?\n/u).map((line) => line.trim()).filter((line) => line.length > 0);
+  return lines.at(-1) ?? "";
+}
+
+function toolTitle(name) {
+  return TOOL_TITLE[name] ?? name ?? "Tool";
+}
+
+function toolBody(event) {
+  const args = event.args ?? {};
+  if (event.name === "bash") return args.command ?? summary(event);
+  if (event.name === "grep") {
+    const where = [args.path, args.include].filter(Boolean).join(" · ");
+    return where ? `${args.pattern}  ${where}` : String(args.pattern ?? summary(event));
+  }
+  if (event.name === "read_file" || event.name === "write_file" || event.name === "edit") {
+    return args.path || args.file_path || summary(event);
+  }
+  if (event.name === "list_files") return args.path || ".";
+  return summary(event);
+}
+
+function createThink(text, options = {}) {
+  const details = document.createElement("details");
+  details.className = "msg msg-tool msg-think";
+  if (options.open) details.open = true;
+  const summaryEl = document.createElement("summary");
+  summaryEl.className = "think-summary";
+  const label = document.createElement("span");
+  label.className = "think-label";
+  label.textContent = "Think";
+  const preview = document.createElement("span");
+  preview.className = "think-preview";
+  preview.textContent = lastNonEmptyLine(text) || "思考中";
+  summaryEl.append(label, preview);
+  const body = document.createElement("p");
+  body.className = "msg-body think-body";
+  body.textContent = text;
+  details.append(summaryEl, body);
+  return details;
+}
+
+function makeCollapsible(article, body, limit) {
+  if ((body.textContent?.length ?? 0) <= limit) return;
+  article.classList.add("msg-collapsed");
+  const more = document.createElement("button");
+  more.type = "button";
+  more.className = "msg-expand";
+  more.textContent = "展开";
+  more.addEventListener("click", () => {
+    const collapsed = article.classList.toggle("msg-collapsed");
+    more.textContent = collapsed ? "展开" : "收起";
+  });
+  article.append(more);
+}
+
 function renderTranscript(events) {
   transcript.replaceChildren();
-  const hasConversation = events.some((event) =>
-    event.type === "user" || event.type === "assistant" || event.type === "tool_call" || event.type === "tool_result"
+  liveThink = null;
+  const merged = mergeFlowEvents(events);
+  const hasConversation = merged.some((event) =>
+    event.type === "user"
+    || event.type === "assistant"
+    || event.type === "tool_call"
+    || event.type === "tool_result"
+    || (event.type === "assistant_chunk" && event.kind === "reasoning")
   );
   stage.classList.toggle("is-hero", !hasConversation);
   if (!hasConversation) {
@@ -648,31 +748,13 @@ function renderTranscript(events) {
     transcript.append(empty);
     return;
   }
-  for (const event of events) {
-    if (
-      event.type === "assistant_chunk"
-      || event.type === "context_compacted"
-      || event.type === "usage"
-      || event.type === "turn_start"
-      || event.type === "turn_end"
-      || event.type === "step_start"
-      || event.type === "step_end"
-      || event.type === "request_start"
-      || event.type === "request_end"
-      || event.type === "approval_asked"
-      || event.type === "approval_decided"
-      || event.type === "inbox_inserted"
-      || event.type === "inbox_claimed"
-      || event.type === "workspace_root"
-      || event.type === "subagent_descriptor"
-      || event.type === "subagent_started"
-      || event.type === "subagent_ended"
-      || event.type === "job_descriptor"
-      || event.type === "job_started"
-      || event.type === "job_ended"
-      || event.type === "goal_change"
-      || (event.type === "tool_result" && !event.isError)
-    ) continue;
+  for (const event of merged) {
+    if (event.type === "assistant_chunk" && event.kind === "reasoning") {
+      if ((event.text ?? "").trim().length === 0) continue;
+      transcript.append(createThink(event.text));
+      continue;
+    }
+    if (event.type === "assistant_chunk" || TRANSCRIPT_SKIP.has(event.type)) continue;
     const article = document.createElement("article");
     const kind = event.type === "user"
       ? "msg-user"
@@ -686,14 +768,21 @@ function renderTranscript(events) {
     article.className = `msg ${kind}`;
     const meta = document.createElement("p");
     meta.className = "msg-meta";
-    meta.textContent = TYPE_LABEL[event.type] ?? event.type;
+    meta.textContent = event.type === "tool_call"
+      ? toolTitle(event.name)
+      : event.type === "tool_result"
+        ? `${toolTitle(event.name)} 结果`
+        : TYPE_LABEL[event.type] ?? event.type;
     const body = document.createElement("p");
     body.className = "msg-body";
     if (event.type === "assistant") renderMarkdown(body, event.text);
+    else if (event.type === "tool_call") body.textContent = toolBody(event);
+    else if (event.type === "tool_result") body.textContent = event.output ?? "";
     else body.textContent = summary(event);
     article.append(meta, body);
     if (event.type === "user") article.append(createMessageActions(event, { copyLabel: "复制输入" }));
     if (event.type === "assistant") article.append(createMessageActions(event, { copyLabel: "复制回复", includeFork: true }));
+    if (event.type === "tool_result") makeCollapsible(article, body, 240);
     transcript.append(article);
   }
   transcript.lastElementChild?.scrollIntoView({ block: "end" });
@@ -752,6 +841,37 @@ async function copyText(text) {
   if (!copied) throw new Error("copy unavailable");
 }
 
+function appendLiveReasoning(delta) {
+  transcript.querySelector(".hint")?.remove();
+  stage.classList.remove("is-hero");
+  if (liveThink === null) {
+    liveThink = createThink(delta);
+    transcript.append(liveThink);
+  } else {
+    const body = liveThink.querySelector(".think-body");
+    const preview = liveThink.querySelector(".think-preview");
+    body.textContent += delta;
+    preview.textContent = lastNonEmptyLine(body.textContent) || "思考中";
+  }
+  liveThink.scrollIntoView({ block: "end" });
+}
+
+function appendLiveTool(event) {
+  transcript.querySelector(".hint")?.remove();
+  const article = document.createElement("article");
+  article.className = "msg msg-tool";
+  const meta = document.createElement("p");
+  meta.className = "msg-meta";
+  meta.textContent = event.type === "tool_result" ? `${toolTitle(event.name)} 结果` : toolTitle(event.name);
+  const body = document.createElement("p");
+  body.className = "msg-body";
+  body.textContent = event.type === "tool_result" ? (event.output ?? "") : toolBody(event);
+  article.append(meta, body);
+  if (event.type === "tool_result") makeCollapsible(article, body, 240);
+  transcript.append(article);
+  article.scrollIntoView({ block: "end" });
+}
+
 function appendLiveMessage(label, text, className = "") {
   transcript.querySelector(".hint")?.remove();
   const article = document.createElement("article");
@@ -772,23 +892,32 @@ function appendLiveMessage(label, text, className = "") {
 
 function renderLiveEvent(event) {
   if (event.type === "user") {
+    liveThink = null;
     stage.classList.remove("is-hero");
     appendLiveMessage("用户", event.text);
     return;
   }
   if (event.type === "assistant_chunk" && event.kind === "reasoning") {
     mainStatus.textContent = "模型思考中…";
+    appendLiveReasoning(event.text ?? "");
     return;
   }
   if (event.type === "assistant_chunk" && event.kind === "tool_call") {
+    liveThink = null;
     mainStatus.textContent = "模型正在组装工具调用…";
     return;
   }
   if (event.type === "assistant_chunk" && event.kind === "text") {
+    liveThink = null;
     let body = transcript.querySelector(".msg-streaming .msg-body");
     if (body === null) body = appendLiveMessage("助手 · 生成中", "", "msg-streaming");
     body.textContent += event.text;
     body.parentElement?.scrollIntoView({ block: "end" });
+    return;
+  }
+  if (event.type === "tool_call" || event.type === "tool_result") {
+    liveThink = null;
+    appendLiveTool(event);
   }
 }
 

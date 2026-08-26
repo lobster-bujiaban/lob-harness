@@ -18,6 +18,7 @@ export type ToolRegistryScope = {
 export const CHILD_TOOL_EXCLUDE = [
   "subagent",
   "write_file",
+  "edit",
   "job",
   "job_output",
   "job_kill",

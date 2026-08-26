@@ -97,7 +97,7 @@ Web 还提供插件启停、配置保存和教学版热重载。热重载会先�
 | 类别 | 工具 |
 |---|---|
 | 基础 | `echo` |
-| 工作区 | `read_file`、`list_files`、`write_file`、`grep` |
+| 工作区 | `read_file`、`list_files`、`write_file`、`edit`、`grep` |
 | Shell | `bash` |
 | 委派 | `subagent` |
 | 后台任务 | `job`、`job_output`、`job_kill` |
@@ -152,7 +152,7 @@ Web / SSE
 - `bash` 是有界前台执行；后台 job 的生产者是子 Agent，不是通用 shell job。
 - goal 只有 create/get/complete，没有暂停、阻塞、预算、自动续跑和多目标。
 - 子 Agent 在同一进程内运行，没有 ACP/Codex 外部代理协议。
-- `write_file` 是整文件覆盖，没有 patch/edit、版本检查或冲突合并。
+- `write_file` 是整文件覆盖；`edit` 是字面量替换，没有版本检查或冲突合并。
 
 ## 联系作者
 
