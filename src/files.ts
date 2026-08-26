@@ -107,7 +107,7 @@ export function installReadFile(
 
   const disposeListFiles = registry.register({
     name: "list_files",
-    description: "列出工作区文件。默认跳过 node_modules、dist、target、build、coverage。未过滤扩展名时先列出当前目录的子目录。看仓库结构用较小 maxResults；搜符号用 grep，不要扫整仓。",
+    description: "列出或统计工作区文件。用户询问文件数量时必须使用 mode=count，并按需传 extensions（如 [\".pdf\"]）和 exclude，禁止先返回完整列表再人工计数。默认跳过 node_modules、dist、target、build、coverage。查看目录结构才使用 mode=list；搜索内容使用 grep。",
     parameters: {
       type: "object",
       properties: {
@@ -123,8 +123,8 @@ export function installReadFile(
           description: "排除的相对路径或目录名，例如 [\"preview\", \"v2/out\"]",
         },
         excludeHidden: { type: "boolean", description: "是否排除隐藏文件和目录，默认 true" },
-        mode: { type: "string", enum: ["list", "count"], description: "返回文件列表或仅返回数量" },
-        maxResults: { type: "integer", minimum: 1, maximum: 5000, description: "list 模式最大返回条数，默认 1000" },
+        mode: { type: "string", enum: ["list", "count"], description: "count 仅返回数量，数量类问题必须选 count；默认为 list" },
+        maxResults: { type: "integer", minimum: 1, maximum: 5000, description: "list 模式最大返回条数，默认 200；count 模式无需设置" },
       },
       additionalProperties: false,
     },
@@ -451,7 +451,7 @@ function parseListFilesArgs(args: unknown): ListFilesQuery {
   if (mode !== "list" && mode !== "count") {
     throw new ToolError("list_files mode must be list or count", "INVALID_ARGUMENT");
   }
-  const maxResults = value.maxResults ?? 1000;
+  const maxResults = value.maxResults ?? 200;
   if (!Number.isInteger(maxResults) || Number(maxResults) < 1 || Number(maxResults) > 5000) {
     throw new ToolError("list_files maxResults must be an integer between 1 and 5000", "INVALID_ARGUMENT");
   }

@@ -89,11 +89,12 @@ const settingsLayout = document.createElement("div");
 settingsLayout.className = "settings-layout";
 const settingsNav = document.createElement("nav");
 settingsNav.className = "settings-nav";
-settingsNav.innerHTML = `<button type="button" data-tab="general">⚙ 通用设置</button><button type="button" data-tab="model" class="active">◉ 模型</button><button type="button" data-tab="plugins">☷ 插件</button><button type="button" data-tab="agents">♧ Agent 预设</button>`;
+settingsNav.innerHTML = `<button type="button" data-tab="general">⚙ 通用设置</button><button type="button" data-tab="model" class="active">◉ 模型</button><button type="button" data-tab="plugins">☷ 插件</button>`;
 const settingsContent = document.createElement("div");
 settingsContent.className = "settings-content";
-const modelPanel = settingsForm.querySelector(".provider-editor");
+const modelPanel = settingsForm.querySelector("#model-panel");
 modelPanel.classList.add("settings-panel");
+const generalPanel = settingsForm.querySelector("#general-panel");
 const pluginsPanel = document.createElement("section");
 pluginsPanel.className = "settings-panel plugins-panel";
 pluginsPanel.hidden = true;
@@ -104,7 +105,7 @@ placeholderPanel.hidden = true;
 placeholderPanel.textContent = "该设置分类将在后续版本开放。";
 modelPanel.before(settingsLayout);
 settingsLayout.append(settingsNav, settingsContent);
-settingsContent.append(modelPanel, pluginsPanel, placeholderPanel);
+settingsContent.append(generalPanel, modelPanel, pluginsPanel, placeholderPanel);
 const pluginSearch = pluginsPanel.querySelector("#plugin-search");
 const pluginList = pluginsPanel.querySelector(".plugin-list");
 const pluginCount = pluginsPanel.querySelector(".plugin-count span");
@@ -494,9 +495,13 @@ function updateWorkspaceControls() {
 
 function renderModelSettings(settings) {
   modelSettings = settings;
-  const profiles = settings.profiles ?? [{ id: "default", name: settings.model, model: settings.model, baseURL: settings.baseURL, hasApiKey: settings.hasApiKey }];
-  modelSelection.replaceChildren(...profiles.map((profile) => new Option(`${profile.name} · ${profile.model}`, profile.id)));
-  modelSelection.value = settings.activeProfileId ?? profiles[0].id;
+  const profiles = settings.profiles ?? [{ id: "default", name: settings.model, model: settings.model, models: [settings.model], baseURL: settings.baseURL, hasApiKey: settings.hasApiKey }];
+  const choices = profiles.flatMap((profile) => (profile.models ?? [profile.model]).map((model) => {
+    const option = new Option(`${profile.name} · ${model}`, `${encodeURIComponent(profile.id)}|${encodeURIComponent(model)}`);
+    return option;
+  }));
+  modelSelection.replaceChildren(...choices);
+  modelSelection.value = `${encodeURIComponent(settings.activeProfileId ?? profiles[0].id)}|${encodeURIComponent(settings.model)}`;
   modelSelection.disabled = false;
   creatingModelProfile = false;
   modelProfilesOverview.hidden = false;
@@ -513,7 +518,7 @@ function modelProfileCard(profile, count) {
   const status = profile.hasApiKey ? "已配置" : "缺少密钥";
   item.innerHTML = `<div><strong></strong><span class="model-provider-tag">${profile.id === "default" ? "内置" : "自定义"}</span><i class="credential-dot"></i><p></p></div><div class="model-card-actions"><button type="button">编辑</button><button type="button" class="text-danger">删除</button></div>`;
   item.querySelector("strong").textContent = profile.name;
-  item.querySelector("p").textContent = `${profile.model} · ${status}`;
+  item.querySelector("p").textContent = `${(profile.models ?? [profile.model]).length} 个模型 · ${status}`;
   item.querySelector(".credential-dot").classList.toggle("configured", profile.hasApiKey);
   const [edit, remove] = item.querySelectorAll("button");
   edit.addEventListener("click", () => openModelEditor(profile));
@@ -542,7 +547,7 @@ function renderModelProfile(profile) {
   if (!profile) return;
   modelProfileName.value = profile.name;
   llmBaseURL.value = profile.baseURL;
-  setModelOptions([profile.model], profile.model);
+  setModelOptions(profile.models ?? [profile.model], profile.models ?? [profile.model]);
   llmApiKey.value = "";
   llmApiKey.disabled = false;
   llmApiKey.placeholder = profile.hasApiKey
@@ -553,10 +558,13 @@ function renderModelProfile(profile) {
   keyError.textContent = "";
 }
 
-function setModelOptions(models, selected) {
+function setModelOptions(models, selected, expand = false) {
   const unique = [...new Set(models.filter((model) => typeof model === "string" && model.length > 0))];
   llmModel.replaceChildren(...unique.map((model) => new Option(model, model)));
-  if (selected && unique.includes(selected)) llmModel.value = selected;
+  const selectedModels = Array.isArray(selected) ? selected : [selected];
+  for (const option of llmModel.options) option.selected = selectedModels.includes(option.value);
+  llmModel.size = Math.min(Math.max(unique.length, expand ? 3 : 2), 6);
+  llmModel.classList.add("expanded");
 }
 
 function renderDashscopeCredential(settings) {
@@ -567,6 +575,7 @@ function renderDashscopeCredential(settings) {
   clearDashscopeApiKey.checked = false;
   dashscopeCredentialDot.classList.toggle("configured", settings.hasDashscopeApiKey);
   dashscopeCredentialLabel.textContent = settings.hasDashscopeApiKey ? "配音密钥已配置" : "配音密钥缺失";
+  clearDashscopeApiKey.closest("label").hidden = !settings.hasDashscopeApiKey;
   dashscopeKeyError.textContent = "";
 }
 
@@ -668,12 +677,6 @@ async function saveModelSettings() {
     llmApiKey.focus();
     return;
   }
-  const dashscopeFailure = apiKeyFailure(dashscopeApiKey.value);
-  if (dashscopeFailure !== "") {
-    dashscopeKeyError.textContent = dashscopeFailure;
-    dashscopeApiKey.focus();
-    return;
-  }
   saveSettings.disabled = true;
   settingsStatus.textContent = "保存中…";
   settingsStatus.classList.remove("error");
@@ -687,10 +690,9 @@ async function saveModelSettings() {
         createProfile: creatingModelProfile,
         provider: "openai-compatible",
         baseURL: llmBaseURL.value,
-        model: llmModel.value,
+        models: [...llmModel.selectedOptions].map((option) => option.value),
+        model: llmModel.selectedOptions[0]?.value,
         apiKey: llmApiKey.value,
-        dashscopeApiKey: dashscopeApiKey.value,
-        clearDashscopeApiKey: clearDashscopeApiKey.checked,
       }),
     });
     const data = await res.json();
@@ -699,6 +701,37 @@ async function saveModelSettings() {
     settingsDialog.close();
   } catch (err) {
     settingsStatus.textContent = err instanceof Error ? err.message : "保存模型设置失败";
+    settingsStatus.classList.add("error");
+  } finally {
+    saveSettings.disabled = false;
+  }
+}
+
+async function saveGeneralSettings() {
+  const failure = apiKeyFailure(dashscopeApiKey.value);
+  if (failure !== "") {
+    dashscopeKeyError.textContent = failure;
+    dashscopeApiKey.focus();
+    return;
+  }
+  saveSettings.disabled = true;
+  settingsStatus.textContent = "保存中…";
+  settingsStatus.classList.remove("error");
+  try {
+    const res = await fetch("/api/settings/llm", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        dashscopeApiKey: dashscopeApiKey.value,
+        clearDashscopeApiKey: clearDashscopeApiKey.checked,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? "保存通用设置失败");
+    renderModelSettings(data);
+    settingsDialog.close();
+  } catch (err) {
+    settingsStatus.textContent = err instanceof Error ? err.message : "保存通用设置失败";
     settingsStatus.classList.add("error");
   } finally {
     saveSettings.disabled = false;
@@ -718,8 +751,8 @@ async function discoverAvailableModels() {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error ?? "获取模型目录失败");
-    const previous = llmModel.value;
-    setModelOptions(data.models, data.models.includes(previous) ? previous : data.models[0]);
+    const previous = [...llmModel.selectedOptions].map((option) => option.value);
+    setModelOptions(data.models, previous.filter((model) => data.models.includes(model)), true);
     settingsStatus.textContent = `获取到 ${data.models.length} 个模型，可在模型名称中选择。`;
   } catch (err) {
     settingsStatus.textContent = err instanceof Error ? err.message : "获取模型目录失败";
@@ -1421,10 +1454,9 @@ function openWorkspaceMenu(anchor, root) {
       const name = window.prompt("重命名工作区", workspaceAliases[root] ?? pathName(root));
       if (name !== null && name.trim().length > 0) workspaceAliases[root] = name.trim();
     } else if (action === "delete") {
-      if (!window.confirm(`删除工作区「${workspaceAliases[root] ?? pathName(root)}」？会话将保留在“未分组”中。`)) return;
-      removedWorkspaces.add(root);
-      delete workspaceAliases[root];
-      if (selectedWorkspace === root) selectedWorkspace = "";
+      menu.remove();
+      void deleteWorkspace(root);
+      return;
     } else {
       return;
     }
@@ -1432,6 +1464,41 @@ function openWorkspaceMenu(anchor, root) {
     menu.remove();
     renderSessionTree(listedSessions);
   });
+}
+
+async function deleteWorkspace(root) {
+  if (managingSessions) return;
+  const sessions = listedSessions.filter((session) => session.source === "tmp" && session.workspaceRoot === root);
+  if (sessions.some((session) => isRunning(session))) {
+    sessionStatus.textContent = "该工作区仍有会话正在运行，请先停止后再删除。";
+    sessionStatus.classList.add("error");
+    return;
+  }
+  const name = workspaceAliases[root] ?? pathName(root);
+  if (!window.confirm(`确定删除工作区「${name}」及其 ${sessions.length} 个会话吗？会话文件将被永久删除，此操作无法撤销。`)) return;
+  managingSessions = true;
+  updateSessionActions();
+  try {
+    const res = await fetch(`/api/sessions/tmp?workspaceRoot=${encodeURIComponent(root)}`, { method: "DELETE" });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? "删除工作区失败");
+    const currentDeleted = sessions.some((session) =>
+      current?.source === session.source && current?.file === session.file);
+    if (currentDeleted) clearSessionView();
+    removedWorkspaces.delete(root);
+    delete workspaceAliases[root];
+    if (selectedWorkspace === root) selectedWorkspace = "";
+    saveWorkspacePreferences();
+    await refreshSessions();
+    sessionStatus.textContent = `已删除工作区「${name}」及 ${data.deleted} 个会话`;
+    sessionStatus.classList.remove("error");
+  } catch (err) {
+    sessionStatus.textContent = err instanceof Error ? err.message : "删除工作区失败";
+    sessionStatus.classList.add("error");
+  } finally {
+    managingSessions = false;
+    updateSessionActions();
+  }
 }
 
 async function refreshSessions(select) {
@@ -1740,11 +1807,24 @@ openSettings.addEventListener("click", () => {
 settingsNav.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-tab]");
   if (button === null) return;
+  const tab = button.dataset.tab;
   for (const item of settingsNav.querySelectorAll("button")) item.classList.toggle("active", item === button);
-  modelPanel.hidden = button.dataset.tab !== "model";
-  pluginsPanel.hidden = button.dataset.tab !== "plugins";
-  placeholderPanel.hidden = button.dataset.tab === "model" || button.dataset.tab === "plugins";
-  settingsForm.querySelector(".dialog-actions").hidden = button.dataset.tab !== "model";
+  generalPanel.hidden = tab !== "general";
+  modelPanel.hidden = tab !== "model";
+  pluginsPanel.hidden = tab !== "plugins";
+  placeholderPanel.hidden = tab === "general" || tab === "model" || tab === "plugins";
+  settingsForm.querySelector(".dialog-actions").hidden = tab !== "general" && tab !== "model";
+  dashscopeApiKey.disabled = tab !== "general";
+  clearDashscopeApiKey.disabled = tab !== "general";
+  if (tab !== "model") setModelEditorDisabled(true);
+  else setModelEditorDisabled(modelProfileEditor.hidden);
+  const titles = {
+    general: ["通用设置", "管理跨功能使用的共享服务与凭据。"],
+    model: ["模型", "管理对话模型提供方与可用模型。"],
+    plugins: ["插件", "配置和查看本部署已安装的插件。"],
+  };
+  settingsForm.querySelector("#settings-title").textContent = titles[tab][0];
+  settingsForm.querySelector("#settings-description").textContent = titles[tab][1];
 });
 pluginSearch.addEventListener("input", renderPlugins);
 main.addEventListener("scroll", () => {
@@ -1788,7 +1868,7 @@ providerCatalog.addEventListener("change", () => {
   modelProfileId.value = providerCatalog.value;
   modelProfileName.value = provider.name;
   llmBaseURL.value = provider.baseURL;
-  setModelOptions([provider.model], provider.model);
+  setModelOptions([provider.model], [provider.model]);
 });
 addCatalogProvider.addEventListener("click", () => {
   providerCatalog.value = Object.keys(MODEL_PROVIDER_CATALOG).find((id) => !modelSettings?.profiles?.some((profile) => profile.id === id)) ?? "deepseek";
@@ -1804,10 +1884,22 @@ discoverModels.addEventListener("click", () => void discoverAvailableModels());
 addManualModel.addEventListener("click", () => {
   const model = prompt("输入模型名称", llmModel.value)?.trim();
   if (!model) return;
-  setModelOptions([...llmModel.options].map((option) => option.value).concat(model), model);
+  const selected = [...llmModel.selectedOptions].map((option) => option.value).concat(model);
+  setModelOptions([...llmModel.options].map((option) => option.value).concat(model), selected);
+});
+llmModel.addEventListener("mousedown", (event) => {
+  const option = event.target.closest("option");
+  if (!option) return;
+  event.preventDefault();
+  option.selected = !option.selected;
+  llmModel.dispatchEvent(new Event("change", { bubbles: true }));
 });
 settingsForm.addEventListener("submit", (event) => {
   event.preventDefault();
+  if (!generalPanel.hidden) {
+    void saveGeneralSettings();
+    return;
+  }
   if (modelPanel.hidden) {
     settingsDialog.close();
     return;
@@ -1815,13 +1907,14 @@ settingsForm.addEventListener("submit", (event) => {
   void saveModelSettings();
 });
 modelSelection.addEventListener("change", async () => {
-  const previous = modelSettings?.activeProfileId;
+  const previous = modelSelection.value;
+  const [profileId, model] = modelSelection.value.split("|").map(decodeURIComponent);
   modelSelection.disabled = true;
   try {
     const res = await fetch("/api/settings/llm", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ activeProfileId: modelSelection.value }),
+      body: JSON.stringify({ activeProfileId: profileId, activeModel: model }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error ?? "切换模型失败");
@@ -1829,7 +1922,7 @@ modelSelection.addEventListener("change", async () => {
     mainStatus.textContent = `已切换到 ${data.profiles?.find((profile) => profile.id === data.activeProfileId)?.name ?? data.model}`;
     mainStatus.classList.remove("error");
   } catch (err) {
-    if (previous !== undefined) modelSelection.value = previous;
+    modelSelection.value = previous;
     mainStatus.textContent = err instanceof Error ? err.message : "切换模型失败";
     mainStatus.classList.add("error");
   } finally {

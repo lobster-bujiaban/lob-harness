@@ -248,7 +248,8 @@ export class OpenAiCompatLlm implements LlmClient {
     let pendingUsage: TokenUsage | undefined;
     let pendingFinish: LlmStreamChunk & { type: "finish" } | undefined;
     let emittedContent = false;
-    for await (const payload of parseSse(response.body)) {
+    const toolArguments = new Map<number, { id?: string; name?: string; arguments: string }>();
+    for await (const payload of parseSse(response.body, { allowEof: true })) {
       throwIfAborted(signal);
       if (payload === SSE_DONE) {
         if (pendingUsage !== undefined) yield { type: "usage", usage: pendingUsage };
@@ -284,6 +285,11 @@ export class OpenAiCompatLlm implements LlmClient {
             throw new Error(`${this.providerName} returned invalid tool arguments`);
           }
           emittedContent = true;
+          const accumulated = toolArguments.get(call.index) ?? { arguments: "" };
+          if (typeof call.id === "string") accumulated.id = call.id;
+          if (typeof call.function?.name === "string") accumulated.name = call.function.name;
+          accumulated.arguments += fragment ?? "";
+          toolArguments.set(call.index, accumulated);
           yield {
             type: "tool_call_delta",
             index: call.index,
@@ -303,6 +309,23 @@ export class OpenAiCompatLlm implements LlmClient {
         pendingUsage = parseUsage(chunk.usage);
       }
     }
+    const completeToolCalls = toolArguments.size > 0 && [...toolArguments.values()].every((call) => {
+      if (!call.id || !call.name) return false;
+      try {
+        JSON.parse(call.arguments);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    if (pendingFinish === undefined && !completeToolCalls) {
+      throw new Error("SSE stream ended without [DONE]");
+    }
+    if (pendingUsage !== undefined) yield { type: "usage", usage: pendingUsage };
+    if (!emittedContent) {
+      throw new HarnessError(`${this.providerName} returned an empty message`, "EMPTY_RESPONSE");
+    }
+    yield pendingFinish ?? { type: "finish", reason: "tool_calls" };
   }
 }
 

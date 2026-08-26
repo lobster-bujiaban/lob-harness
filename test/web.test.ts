@@ -330,8 +330,9 @@ test("删除 API 只删除指定 tmp 会话，清空 API 保留 fixtures", async
   };
   await mkdir(roots.tmp, { recursive: true });
   await mkdir(roots.fixtures, { recursive: true });
-  await writeFile(join(roots.tmp, "one.jsonl"), "");
-  await writeFile(join(roots.tmp, "two.jsonl"), "");
+  await writeFile(join(roots.tmp, "one.jsonl"), `${JSON.stringify({ type: "workspace_root", path: "/workspace-a" })}\n`);
+  await writeFile(join(roots.tmp, "two.jsonl"), `${JSON.stringify({ type: "workspace_root", path: "/workspace-a" })}\n`);
+  await writeFile(join(roots.tmp, "three.jsonl"), `${JSON.stringify({ type: "workspace_root", path: "/workspace-b" })}\n`);
   await writeFile(join(roots.tmp, "keep.txt"), "not a session");
   await writeFile(join(roots.fixtures, "replay.jsonl"), "");
 
@@ -361,6 +362,13 @@ test("删除 API 只删除指定 tmp 会话，清空 API 保留 fixtures", async
       method: "DELETE",
     });
     expect(missing.status).toBe(404);
+
+    const workspaceDeleted = await fetch(`${base}/api/sessions/tmp?workspaceRoot=${encodeURIComponent("/workspace-a")}`, {
+      method: "DELETE",
+    });
+    expect(workspaceDeleted.status).toBe(200);
+    await expect(workspaceDeleted.json()).resolves.toEqual({ deleted: 1 });
+    expect(await readdir(roots.tmp)).not.toContain("two.jsonl");
 
     const cleared = await fetch(`${base}/api/sessions/tmp`, {
       method: "DELETE",

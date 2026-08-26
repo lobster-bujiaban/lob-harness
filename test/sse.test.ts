@@ -31,3 +31,11 @@ test("SSE 缺少 DONE 时按断流失败", async () => {
   };
   await expect(consume()).rejects.toThrow("without [DONE]");
 });
+
+test("调用方可选择自行校验 EOF 完整性", async () => {
+  const values: string[] = [];
+  for await (const value of parseSse(byteStream(["data: {}\n\n"]), { allowEof: true })) {
+    values.push(value);
+  }
+  expect(values).toEqual(["{}"]);
+});

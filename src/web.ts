@@ -290,6 +290,23 @@ export async function handleRequest(
       sendJson(res, 403, { error: "fixtures are read-only" });
       return;
     }
+    const workspaceRoot = url.searchParams.get("workspaceRoot");
+    if (workspaceRoot !== null) {
+      if (workspaceRoot.length === 0) {
+        sendJson(res, 400, { error: "workspaceRoot is required" });
+        return;
+      }
+      let deleted = 0;
+      for (const item of await persistence.tmp.list()) {
+        const events = await persistence.tmp.load(item.id);
+        if (deriveWorkspaceRoot(events) !== workspaceRoot) continue;
+        await context.agents.stop("tmp", item.id);
+        await persistence.tmp.remove(item.id);
+        deleted += 1;
+      }
+      sendJson(res, 200, { deleted });
+      return;
+    }
     const deleted = await persistence.tmp.clear();
     sendJson(res, 200, { deleted });
     return;

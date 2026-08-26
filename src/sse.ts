@@ -6,6 +6,7 @@ export const SSE_DONE = "[DONE]";
  */
 export async function* parseSse(
   stream: ReadableStream<Uint8Array>,
+  options: { allowEof?: boolean } = {},
 ): AsyncGenerator<string> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
@@ -41,5 +42,5 @@ export async function* parseSse(
   } finally {
     reader.releaseLock();
   }
-  throw new Error("SSE stream ended without [DONE]");
+  if (!options.allowEof) throw new Error("SSE stream ended without [DONE]");
 }

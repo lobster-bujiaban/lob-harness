@@ -15,13 +15,15 @@ type ModelProfile = {
   provider: LlmProvider;
   baseURL: string;
   model: string;
+  models: string[];
 };
 
 type SavedSettings = { version: 2; activeProfileId: string; profiles: ModelProfile[] };
 type SavedCredentials = { version: 1; apiKey?: string; modelApiKeys?: Record<string, string>; dashscopeApiKey?: string };
 
 export type PublicModelProfile = ModelProfile & { hasApiKey: boolean };
-export type PublicLlmSettings = Omit<ModelProfile, "id" | "name"> & {
+export type PublicLlmSettings = Omit<ModelProfile, "id" | "name" | "models"> & {
+  models?: string[];
   activeProfileId?: string;
   profiles?: PublicModelProfile[];
   hasApiKey: boolean;
@@ -32,6 +34,8 @@ export type UpdateLlmSettings = {
   provider?: unknown;
   baseURL?: unknown;
   model?: unknown;
+  models?: unknown;
+  activeModel?: unknown;
   apiKey?: unknown;
   clearApiKey?: unknown;
   dashscopeApiKey?: unknown;
@@ -47,7 +51,7 @@ export type DiscoverModelsInput = { profileId?: unknown; baseURL?: unknown; apiK
 const DEFAULT_PROFILE: ModelProfile = {
   id: "default",
   name: "DeepSeek",
-  provider: "openai-compatible", baseURL: "https://api.deepseek.com", model: "deepseek-v4-flash",
+  provider: "openai-compatible", baseURL: "https://api.deepseek.com", model: "deepseek-v4-flash", models: ["deepseek-v4-flash"],
 };
 
 export class LlmSettingsStore {
@@ -70,7 +74,7 @@ export class LlmSettingsStore {
     const active = profileById(settings, settings.activeProfileId);
     const keys = credentialKeys(credentials);
     return {
-      provider: active.provider, baseURL: active.baseURL, model: active.model,
+      provider: active.provider, baseURL: active.baseURL, model: active.model, models: active.models,
       activeProfileId: active.id,
       profiles: settings.profiles.map((profile) => ({ ...profile, hasApiKey: keys[profile.id] !== undefined })),
       hasApiKey: keys[active.id] !== undefined,
@@ -102,6 +106,7 @@ export class LlmSettingsStore {
         provider: parseProvider(input.provider ?? "openai-compatible"),
         baseURL: parseBaseURL(input.baseURL),
         model: parseModel(input.model),
+        models: parseModels(input.models ?? [input.model]),
       };
       current.profiles.push(target);
     } else if (deleteProfileId === undefined) {
@@ -109,12 +114,20 @@ export class LlmSettingsStore {
       target.name = parseProfileName(input.profileName ?? target.name);
       target.provider = parseProvider(input.provider ?? target.provider);
       target.baseURL = parseBaseURL(input.baseURL ?? target.baseURL);
+      if (input.models !== undefined) target.models = parseModels(input.models);
       target.model = parseModel(input.model ?? target.model);
+      if (!target.models.includes(target.model)) target.models.unshift(target.model);
     }
     const activateId = optionalProfileId(input.activeProfileId) ?? (createProfile ? targetId : undefined);
     if (activateId !== undefined) {
       profileById(current, activateId);
       current.activeProfileId = activateId;
+    }
+    if (input.activeModel !== undefined) {
+      const active = profileById(current, current.activeProfileId);
+      const model = parseModel(input.activeModel);
+      if (!active.models.includes(model)) throw new Error("所选模型不在该提供方的模型列表中");
+      active.model = model;
     }
     const clearApiKey = input.clearApiKey === true;
     const apiKey = parseOptionalApiKey(input.apiKey);
@@ -196,6 +209,7 @@ export class LlmSettingsStore {
         ...DEFAULT_PROFILE,
         provider: raw.provider === "fake" ? "openai-compatible" as const : parseProvider(raw.provider),
         baseURL: parseBaseURL(raw.baseURL), model: migrateLegacyModel(parseModel(raw.model)),
+        models: [migrateLegacyModel(parseModel(raw.model))],
       };
       return { version: 2, activeProfileId: legacy.id, profiles: [legacy] };
     } catch {
@@ -259,12 +273,16 @@ function parseProvider(value: unknown): LlmProvider {
 function parseProfile(value: unknown): ModelProfile {
   if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("模型配置无效");
   const raw = value as Record<string, unknown>;
+  const model = migrateLegacyModel(parseModel(raw.model));
+  const models = parseModels(raw.models ?? [raw.model]).map(migrateLegacyModel);
+  if (!models.includes(model)) models.unshift(model);
   return {
     id: parseProfileId(raw.id),
     name: parseProfileName(raw.name),
     provider: parseProvider(raw.provider),
     baseURL: parseBaseURL(raw.baseURL),
-    model: migrateLegacyModel(parseModel(raw.model)),
+    model,
+    models,
   };
 }
 
@@ -330,6 +348,13 @@ function parseModel(value: unknown): string {
     throw new Error("模型名必须为 1～200 个字符");
   }
   return text;
+}
+
+function parseModels(value: unknown): string[] {
+  if (!Array.isArray(value)) throw new Error("模型列表格式无效");
+  const models = [...new Set(value.map(parseModel))];
+  if (models.length === 0) throw new Error("请至少选择一个模型");
+  return models;
 }
 
 function migrateLegacyModel(model: string): string {

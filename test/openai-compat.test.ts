@@ -310,6 +310,27 @@ test("真实流中途断开时保留 chunk，但不提交成功 assistant", asyn
   ]);
 });
 
+test("兼容工具调用完整但未发送 DONE 的 GPT SSE", async () => {
+  const fetchImpl: FetchLike = async () => new Response(
+    `data: ${JSON.stringify({
+      choices: [{
+        delta: { tool_calls: [{ index: 0, id: "call-1", function: { name: "list_files", arguments: '{"mode":"count"}' } }] },
+        finish_reason: null,
+      }],
+    })}\n\n`,
+    { status: 200, headers: { "content-type": "text/event-stream" } },
+  );
+  const llm = new OpenAiCompatLlm({ apiKey: "test-key", fetchImpl });
+  const chunks = [];
+  for await (const chunk of llm.stream([{ role: "user", content: "有几份简历" }], [{
+    name: "list_files",
+    description: "统计文件",
+    parameters: { type: "object" },
+  }])) chunks.push(chunk);
+
+  expect(chunks.at(-1)).toEqual({ type: "finish", reason: "tool_calls" });
+});
+
 test("适配器规范化限流、上下文溢出和空响应", async () => {
   const cases: Array<{ response: Response; code: string }> = [
     { response: jsonResponse({ error: { message: "slow down" } }, 429), code: "RATE_LIMITED" },
