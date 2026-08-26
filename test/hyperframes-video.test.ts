@@ -59,19 +59,27 @@ test("结构化方案生成完整 Hyperframes 工程", async () => {
   expect(JSON.parse(await readFile(join(output, "package.json"), "utf8")).scripts.render)
     .toContain("renders/demo-agent.mp4");
   const hook = await readFile(join(output, "compositions", "frames", "hook.html"), "utf8");
-  expect(hook).toContain('class="clip f-head"');
+  expect(hook).toContain('class="clip f01-head"');
   expect(hook).toContain('font-family:"Georgia"');
-  expect(hook).toContain('id="f-draw"');
+  expect(hook).toContain('id="f01-draw"');
+  expect(hook).toContain("WRONG PATH");
   expect(hook).toContain('src="assets/brand/project-logo.png"');
   expect(hook).not.toContain("../../assets");
   expect(hook).toContain("assets/vendor/gsap.min.js");
   expect(hook).not.toContain("template-hook");
+  expect(hook).not.toContain('class="clip f-head"');
   expect(await readFile(join(output, "assets", "vendor", "gsap.min.js"), "utf8")).toContain("gsap");
   const index = await readFile(join(output, "index.html"), "utf8");
   expect(index).toContain('data-width="1080"');
   expect(index).toContain("data-no-timeline");
   expect(await readFile(join(output, "发布文案.md"), "utf8")).toContain("#Agent原理");
-  expect(await readFile(join(output, "compositions", "frames", "flow.html"), "utf8")).toContain("agent-service.ts · L1–1");
+  const flow = await readFile(join(output, "compositions", "frames", "flow.html"), "utf8");
+  expect(flow).toContain("agent-service.ts · L1–1");
+  expect(flow).toContain("id=\"f02-fill\"");
+  expect(flow).not.toContain("WRONG PATH");
+  const boundary = await readFile(join(output, "compositions", "frames", "boundary.html"), "utf8");
+  expect(boundary).toContain("v hot");
+  expect(boundary).toContain("f03-oval");
   expect(result.contentChecks).toMatchObject({ keywords: true, saveValue: true, seriesContinuation: true, creatorVisible: true, qrCodeAbsent: true });
 });
 

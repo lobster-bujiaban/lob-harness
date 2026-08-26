@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { SandboxExecutionPolicy } from "./sandbox-service.ts";
 import type { ShellProvider } from "./shell-service.ts";
 import { ToolError, type ToolRegistry } from "./tools.ts";
-import { renderCaptions, renderFrame } from "./hyperframes-visual.ts";
+import { renderCaptions, renderFrame, resolveVisualTemplate } from "./hyperframes-visual.ts";
 
 const HYPERFRAMES_VERSION = "0.7.108";
 const SOURCE_EXTENSIONS = new Set([".c", ".cc", ".cpp", ".cs", ".go", ".java", ".js", ".jsx", ".kt", ".md", ".php", ".py", ".rb", ".rs", ".sh", ".sql", ".ts", ".tsx", ".vue"]);
@@ -574,7 +574,7 @@ function contentChecks(plan: HyperframesPlan) {
     qrCodeAbsent: !containsQrPromotion(plan),
     evidenceFiles: evidenceFiles.size,
     evidenceCoverage: technicalScenes.length === 0 ? 1 : Number((evidencedTechnicalScenes.length / technicalScenes.length).toFixed(2)),
-    visualVariety: new Set(plan.scenes.map((scene) => scene.template ?? "points")).size >= 3,
+    visualVariety: new Set(plan.scenes.map((scene, index) => resolveVisualTemplate(scene, index, plan.scenes.length))).size >= 3,
     narrationComplete: !plan.requireNarration || plan.scenes.every((scene) => scene.audioPath !== undefined),
     aiDisclosure: plan.aiDisclosure !== false,
     durationMode: plan.scenes.reduce((sum, scene) => sum + scene.duration, 0) > 180 ? "deep-dive" : "compact",
