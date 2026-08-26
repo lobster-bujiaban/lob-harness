@@ -16,6 +16,7 @@ import { ShellService, SandboxBashProvider, SandboxPowerShellProvider } from "./
 import { SubprocessService, LocalSubprocessProvider } from "./subprocess-service.ts";
 import { SandboxService, LocalSandboxProvider } from "./sandbox-service.ts";
 import { SandboxPolicyService } from "./sandbox-policy.ts";
+import { installHyperframesVideo } from "./hyperframes-video.ts";
 
 export type PluginManifest = {
   id: string;
@@ -92,6 +93,14 @@ export const BUILTIN_PLUGINS: readonly PluginManifest[] = Object.freeze([
     description: "同会话持久目标：状态写进日志，模型用 get_goal / create_goal / complete_goal 读写。",
     tools: ["get_goal", "create_goal", "complete_goal"],
     configurable: false,
+    defaultEnabled: true,
+  },
+  {
+    id: "hyperframes-video",
+    name: "Hyperframes Video",
+    description: "把源码摘要和结构化分镜转换为抖音竖版 Hyperframes 工程并渲染 MP4。",
+    tools: ["video_analyze_source", "video_create_hyperframes", "video_render_hyperframes"],
+    configurable: true,
     defaultEnabled: true,
   },
 ]);
@@ -236,6 +245,12 @@ export class PluginStore {
           owner: scope.owner,
         });
       }), { inject: ["tools"] });
+    this.context.loader.builtins["hyperframes-video"] = Object.assign((ctx: Context, config: Record<string, unknown>) =>
+      ctx.tools.register("hyperframes-video", (registry, workspaceRoot) => installHyperframesVideo(registry, {
+        root: workspaceRoot,
+        shell: ctx.shell,
+        renderTimeoutMs: config.renderTimeoutMs as number,
+      })), { inject: ["tools", "shell"] });
     const saved = await this.read();
     for (const manifest of BUILTIN_PLUGINS) {
       const entry = saved.plugins[manifest.id];
@@ -329,6 +344,13 @@ function resolveConfig(id: string, config: Record<string, unknown>): Record<stri
       throw new Error("mcp-client.timeoutMs 必须是 1～600000 的整数");
     }
     return { serverName, failOnStartupError, timeoutMs };
+  }
+  if (id === "hyperframes-video") {
+    const renderTimeoutMs = config.renderTimeoutMs ?? 1_800_000;
+    if (!Number.isSafeInteger(renderTimeoutMs) || (renderTimeoutMs as number) < 60_000 || (renderTimeoutMs as number) > 3_600_000) {
+      throw new Error("hyperframes-video.renderTimeoutMs 必须是 60000～3600000 的整数");
+    }
+    return { renderTimeoutMs };
   }
   return structuredClone(config);
 }

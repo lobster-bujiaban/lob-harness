@@ -102,9 +102,24 @@ Web 还提供插件启停、配置保存和教学版热重载。热重载会先�
 | 委派 | `subagent` |
 | 后台任务 | `job`、`job_output`、`job_kill` |
 | 会话目标 | `get_goal`、`create_goal`、`complete_goal` |
+| 视频 | `video_analyze_source`、`video_create_hyperframes`、`video_render_hyperframes` |
 | MCP（启用插件后） | `mcp__demo__ping` |
 
 所有工具统一经过 `preExecute → execute → postExecute`。拒绝、未知工具、执行异常和后置阻断都会写成结构化 `tool_result`，供模型看到，不会直接伪造整个 turn 成功。
+
+### 源码转 Hyperframes 视频
+
+内置 `Hyperframes Video` 插件把视频制作收敛为三个高层工具：先对当前工作区内的源码做有界摘要，再由 Agent 生成 3～16 个结构化场景，最后创建并渲染 1080×1920 的 Hyperframes 工程。视频允许 30 秒到 20 分钟，时长由讲透问题所需的信息决定。工程固定使用 `hyperframes@0.7.108`，输出到项目的 `renders/<slug>.mp4`。
+
+视频方案可填写 `audienceQuestion`、`searchableTitle`、`searchKeywords`、`saveValue` 和 `seriesNext`。插件据此生成搜索友好的发布文案、可收藏价值检查和系列承接，并默认要求 AI 内容声明。
+
+插件不会自动把旁白文本发送到外部 TTS。需要有声成片时，在场景的 `audioPath` 中提供工作区内的本地音频；创建工具会把音频复制到工程并挂到时间轴。典型调用顺序：
+
+```text
+video_analyze_source → video_create_hyperframes → video_render_hyperframes
+```
+
+源码、输出目录和音频路径都必须位于当前会话工作区内；渲染只向模型返回末尾摘要日志，避免 Hyperframes/FFmpeg 输出占满上下文。
 
 连续 `parallel` 工具最多并发 4 个；`exclusive` 工具构成双向 barrier。执行可以乱序完成，但结果按模型调用顺序写入。工具还可声明超时，超时后等待 executor 协作式停稳再返回 `TOOL_TIMEOUT`。
 
