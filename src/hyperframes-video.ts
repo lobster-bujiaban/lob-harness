@@ -550,10 +550,12 @@ function renderIndex(plan: HyperframesPlan): string {
 }
 
 function renderPublishCopy(plan: HyperframesPlan): string {
-  const title = plan.searchableTitle ?? plan.scenes[0]?.title ?? plan.projectName;
-  const keywords = plan.searchKeywords ?? [];
+  const title = withPeriod(plan.searchableTitle ?? plan.scenes[0]?.title ?? plan.projectName);
+  const keywords = (plan.searchKeywords ?? []).slice(0, 5);
   const saveValue = plan.saveValue ?? [];
-  return `# 发布文案\n\n## 标题\n\n${title}\n\n## 描述\n\n${plan.audienceQuestion ?? title}\n\n这是「${plan.creatorName ?? "虾哥不加班"}」公开研发的 ${plan.projectName}，源码已发布到 GitHub：${plan.repositoryUrl ?? ""}\n\n${saveValue.length > 0 ? `这条视频讲清：${saveValue.join("、")}。建议收藏，遇到类似问题时可以按步骤排查。` : ""}\n\n${keywords.map((keyword) => `#${keyword.replace(/\s+/gu, "")}`).join(" ")}\n\n## 置顶评论\n\n项目源码：${plan.repositoryUrl ?? ""}\n关注「${plan.creatorName ?? "虾哥不加班"}」，持续公开 AI Agent 研发与源码拆解。${plan.seriesNext ? `下一期：${plan.seriesNext}。` : ""}\n\n## 发布检查\n\n- 第一帧清楚显示项目名、虾哥公开研发和 GitHub 仓库。\n- 全片只使用项目自带 Logo，不出现二维码或扫码引导。\n- 标题、口播、字幕自然包含核心搜索词，不堆砌关键词。\n`;
+  const repo = githubRepoLabel(plan.repositoryUrl ?? "");
+  const repoLine = repo.length === 0 ? "" : `这是「${plan.creatorName ?? "虾哥不加班"}」公开研发的 ${plan.projectName}，源码已发布到 GitHub：${repo}`;
+  return `# 发布文案\n\n## 标题\n\n${title}\n\n## 描述\n\n${plan.audienceQuestion ?? title}\n\n${repoLine}\n\n${saveValue.length > 0 ? `这条视频讲清：${saveValue.join("、")}。建议收藏，遇到类似问题时可以按步骤排查。` : ""}\n\n${keywords.map((keyword) => `#${keyword.replace(/\s+/gu, "")}`).join(" ")}\n\n## 置顶评论\n\n项目源码：${repo}\n关注「${plan.creatorName ?? "虾哥不加班"}」，持续公开 AI Agent 研发与源码拆解。${plan.seriesNext ? `下一期：${plan.seriesNext}。` : ""}\n\n## 发布检查\n\n- 第一帧清楚显示项目名、虾哥公开研发和 GitHub 仓库。\n- 全片只使用项目自带 Logo，不出现二维码或扫码引导。\n- 标题以句号结尾，抖音会把标题和描述连在一起显示。\n- 文案里的仓库写成 owner/repo，不写 https 链接。\n- 标签不超过 5 个。\n- 标题、口播、字幕自然包含核心搜索词，不堆砌关键词。\n`;
 }
 
 function contentChecks(plan: HyperframesPlan) {
@@ -748,6 +750,13 @@ function optionalStringArray(args: unknown, key: string, max: number): string[] 
 
 function unrestrictedPolicy(workspaceRoot: string): SandboxExecutionPolicy {
   return { mode: "danger-full-access", workspaceRoot };
+}
+function withPeriod(title: string): string {
+  const trimmed = title.trim();
+  return /[。！？]$/u.test(trimmed) ? trimmed : `${trimmed}。`;
+}
+function githubRepoLabel(url: string): string {
+  return url.replace(/^https:\/\/github\.com\//u, "").replace(/\/$/u, "");
 }
 function shellQuote(value: string): string { return `'${value.replaceAll("'", `'\\''`)}'`; }
 function resolveInside(root: string, input: string) { const target = resolve(root, input); if (target !== root && !target.startsWith(`${root}${sep}`)) throw new ToolError("路径必须位于当前工作区", "VIDEO_PATH_OUTSIDE_WORKSPACE"); return target; }

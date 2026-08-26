@@ -72,7 +72,12 @@ test("结构化方案生成完整 Hyperframes 工程", async () => {
   const index = await readFile(join(output, "index.html"), "utf8");
   expect(index).toContain('data-width="1080"');
   expect(index).toContain("data-no-timeline");
-  expect(await readFile(join(output, "发布文案.md"), "utf8")).toContain("#Agent原理");
+  const copy = await readFile(join(output, "发布文案.md"), "utf8");
+  expect(copy).toContain("#Agent原理");
+  expect(copy).toContain("Agent 中断恢复原理：事件日志与状态投影。");
+  expect(copy).toContain("lobster-bujiaban/demo-agent");
+  expect(copy).not.toContain("https://github.com/");
+  expect(copy.match(/#[^\s#]+/gu)?.length).toBeLessThanOrEqual(5);
   const flow = await readFile(join(output, "compositions", "frames", "flow.html"), "utf8");
   expect(flow).toContain("agent-service.ts · L1–1");
   expect(flow).toContain("id=\"f02-fill\"");
