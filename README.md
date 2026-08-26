@@ -111,7 +111,7 @@ Web 还提供插件启停、配置保存和教学版热重载。热重载会先�
 
 内置 `Hyperframes Video` 插件把视频制作收敛为三个高层工具：先对当前工作区内的源码做有界摘要，再由 Agent 生成 3～16 个结构化场景，最后创建并渲染 1080×1920 的 Hyperframes 工程。视频允许 30 秒到 20 分钟，时长由讲透问题所需的信息决定。工程固定使用 `hyperframes@0.7.108`，输出到项目的 `renders/<slug>.mp4`。
 
-视频方案可填写 `audienceQuestion`、`searchableTitle`、`searchKeywords`、`saveValue` 和 `seriesNext`。插件据此生成搜索友好的发布文案、可收藏价值检查和系列承接，并默认要求 AI 内容声明。
+视频方案可填写 `audienceQuestion`、`searchableTitle`、`searchKeywords`、`saveValue` 和 `seriesNext`。插件据此生成搜索友好的发布文案、可收藏价值检查和系列承接。
 
 插件不会自动把旁白文本发送到外部 TTS。需要有声成片时，在场景的 `audioPath` 中提供工作区内的本地音频；创建工具会把音频复制到工程并挂到时间轴。典型调用顺序：
 
@@ -120,6 +120,27 @@ video_analyze_source → video_create_hyperframes → video_render_hyperframes
 ```
 
 源码、输出目录和音频路径都必须位于当前会话工作区内；渲染只向模型返回末尾摘要日志，避免 Hyperframes/FFmpeg 输出占满上下文。
+
+可直接在选择源码工作区后使用下面的提示词：
+
+```text
+请把当前工作区中的【源码目录】制作成一条适合抖音发布的源码拆解视频，最终交付 MP4。
+
+要求：
+1. 先调用 video_analyze_source，只根据源码证据确定一个用户会主动搜索、对工程实践有价值的核心问题；不要把项目功能列表压成视频。
+2. 内容以讲透为优先，不强行限制为短视频。根据问题复杂度选择 3～16 个场景和合理时长，总时长控制在 30 秒～20 分钟。
+3. 开头直接呈现具体问题、损失或反常识判断；正文依次讲清现象、原因、源码主链路、关键机制、适用边界和可执行结论。
+4. 给出 searchableTitle、audienceQuestion、2～8 个 searchKeywords、至少 2 个 saveValue，以及 seriesNext。关键词自然进入标题、口播和字幕，不堆砌。
+5. 每个结论都要能追溯到本地源码；事实不足时只精准读取相关文件。不要编造类名、调用链、性能数据或平台规则。
+6. 画面使用 1080×1920 Hyperframes 竖版工程。每个场景选择合适的 hook、flow、compare、points 或 boundary 表达，不要全片重复同一种版式。
+7. 旁白音频从【本地音频目录，可选】读取，并通过每个场景的 audioPath 挂载；不要擅自把旁白文本发送给外部 TTS。没有音频时先完成视频工程并明确报告缺少的音频清单，不要假装已经生成有声成片。
+8. 调用 video_create_hyperframes 创建到【输出目录】，检查生成的内容质量结果；不满足搜索、收藏价值、系列承接时先修订方案。
+9. 调用 video_render_hyperframes 完成 check 和 render。最终报告 MP4、发布文案和视频方案的真实路径。
+
+源码目录：【例如 src】
+输出目录：【例如 videos/lob-harness】
+本地音频目录：【例如 narration；没有则写“无”】
+```
 
 连续 `parallel` 工具最多并发 4 个；`exclusive` 工具构成双向 barrier。执行可以乱序完成，但结果按模型调用顺序写入。工具还可声明超时，超时后等待 executor 协作式停稳再返回 `TOOL_TIMEOUT`。
 

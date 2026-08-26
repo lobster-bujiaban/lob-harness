@@ -273,7 +273,7 @@ function renderPublishCopy(plan: HyperframesPlan): string {
   const title = plan.searchableTitle ?? plan.scenes[0]?.title ?? plan.projectName;
   const keywords = plan.searchKeywords ?? [];
   const saveValue = plan.saveValue ?? [];
-  return `# 发布文案\n\n## 标题\n\n${title}\n\n## 描述\n\n${plan.audienceQuestion ?? title}\n\n${saveValue.length > 0 ? `这条视频讲清：${saveValue.join("、")}。建议收藏，遇到类似问题时可以按步骤排查。` : ""}\n\n${keywords.map((keyword) => `#${keyword.replace(/\s+/gu, "")}`).join(" ")}\n\n## 置顶评论\n\n${plan.seriesNext ? `下一期：${plan.seriesNext}。你最想先看哪一步？` : "你在实际项目里遇到过哪一步？欢迎留下具体场景。"}\n\n## 发布检查\n\n- 发布时主动声明内容包含 AI 辅助生成。\n- 标题、口播、字幕自然包含核心搜索词，不堆砌关键词。\n- 发布后保留作品并持续回复有信息量的评论。\n`;
+  return `# 发布文案\n\n## 标题\n\n${title}\n\n## 描述\n\n${plan.audienceQuestion ?? title}\n\n${saveValue.length > 0 ? `这条视频讲清：${saveValue.join("、")}。建议收藏，遇到类似问题时可以按步骤排查。` : ""}\n\n${keywords.map((keyword) => `#${keyword.replace(/\s+/gu, "")}`).join(" ")}\n\n## 置顶评论\n\n${plan.seriesNext ? `下一期：${plan.seriesNext}。你最想先看哪一步？` : "你在实际项目里遇到过哪一步？欢迎留下具体场景。"}\n\n## 发布检查\n\n- 标题、口播、字幕自然包含核心搜索词，不堆砌关键词。\n- 发布后保留作品并持续回复有信息量的评论。\n`;
 }
 
 function contentChecks(plan: HyperframesPlan) {
