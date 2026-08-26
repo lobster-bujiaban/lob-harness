@@ -4,9 +4,11 @@ import type { SessionEvent } from "./session.ts";
 
 export type PersistedSession = { id: string; updatedAt: number };
 
+export type LoadOptions = { repair?: boolean };
+
 export interface SessionPersistence {
   create(id: string): Promise<void>;
-  load(id: string): Promise<SessionEvent[]>;
+  load(id: string, options?: LoadOptions): Promise<SessionEvent[]>;
   append(id: string, event: SessionEvent): Promise<void>;
   list(): Promise<PersistedSession[]>;
   remove(id: string): Promise<void>;
@@ -21,12 +23,12 @@ export class JsonlSessionPersistence implements SessionPersistence {
     await writeFile(this.path(id), "", { flag: "wx" });
   }
 
-  async load(id: string): Promise<SessionEvent[]> {
+  async load(id: string, options?: LoadOptions): Promise<SessionEvent[]> {
     const path = this.path(id);
     const text = await readFile(path, "utf8");
     const events = parseJsonl(text);
     const physicalLines = text.length === 0 ? 0 : text.split("\n").length - (text.endsWith("\n") ? 1 : 0);
-    if (events.length < physicalLines) {
+    if (options?.repair !== false && events.length < physicalLines) {
       await writeFile(path, events.map((event) => JSON.stringify(event)).join("\n") + (events.length > 0 ? "\n" : ""), "utf8");
     }
     return events;
@@ -70,7 +72,7 @@ export class MemorySessionPersistence implements SessionPersistence {
     this.sessions.set(id, { events: [], updatedAt: ++this.clock });
   }
 
-  async load(id: string): Promise<SessionEvent[]> {
+  async load(id: string, _options?: LoadOptions): Promise<SessionEvent[]> {
     const session = this.sessions.get(id);
     if (session === undefined) throw notFound();
     return structuredClone(session.events);

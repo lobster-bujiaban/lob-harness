@@ -77,7 +77,7 @@ export async function listSessions(
   const providers = createPersistences(roots);
   for (const source of ["fixtures", "tmp"] as const) {
     for (const item of await providers[source].list()) {
-      const events = await providers[source].load(item.id);
+      const events = await providers[source].load(item.id, { repair: false });
       const firstPrompt = events.find((event) => event.type === "user");
       sessions.push({
         source,
@@ -129,8 +129,8 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   return JSON.parse(raw) as unknown;
 }
 
-async function payload(persistence: SessionPersistence, id: string) {
-  const events = await persistence.load(id);
+async function payload(persistence: SessionPersistence, id: string, options?: { repair?: boolean }) {
+  const events = await persistence.load(id, options);
   return {
     events,
     messages: projectMessages(events),
@@ -299,7 +299,7 @@ export async function handleRequest(
       }
       let deleted = 0;
       for (const item of await persistence.tmp.list()) {
-        const events = await persistence.tmp.load(item.id);
+        const events = await persistence.tmp.load(item.id, { repair: false });
         if (deriveWorkspaceRoot(events) !== workspaceRoot) continue;
         await context.agents.stop("tmp", item.id);
         await persistence.tmp.remove(item.id);
@@ -502,7 +502,7 @@ export async function handleRequest(
     const sessions = await Promise.all((["fixtures", "tmp"] as const).map(async (source) => {
       const result = [];
       for (const item of await persistence[source].list()) {
-        const events = await persistence[source].load(item.id);
+        const events = await persistence[source].load(item.id, { repair: false });
         const firstPrompt = events.find((event) => event.type === "user");
         result.push({ source, file: item.id, workspaceRoot: deriveWorkspaceRoot(events), title: firstPrompt?.type === "user" ? firstPrompt.text : "新会话", updatedAt: item.updatedAt });
       }
@@ -518,7 +518,8 @@ export async function handleRequest(
     try {
       sessionFile(source, file, roots);
       const provider = source === "tmp" ? persistence.tmp : persistence.fixtures;
-      sendJson(res, 200, await payload(provider, file));
+      const running = context.agents.get(source, file)?.status === "running";
+      sendJson(res, 200, await payload(provider, file, running ? { repair: false } : undefined));
     } catch (err) {
       const message = err instanceof Error ? err.message : "load failed";
       const status = message === "unknown source" || message === "invalid file" ? 400 : 404;

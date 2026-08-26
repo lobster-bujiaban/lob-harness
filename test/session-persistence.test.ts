@@ -119,6 +119,8 @@ test("JSONL 忽略未完成尾行，但拒绝中间损坏", async () => {
   const tail = "truncated.jsonl";
   await persistence.create(tail);
   await writeFile(join(directory, tail), '{"type":"user","text":"ok","seq":1}\n{"type":"assistant"', "utf8");
+  expect(await persistence.load(tail, { repair: false })).toEqual([{ type: "user", text: "ok", seq: 1 }]);
+  expect(await readFile(join(directory, tail), "utf8")).toBe('{"type":"user","text":"ok","seq":1}\n{"type":"assistant"');
   expect(await persistence.load(tail)).toEqual([{ type: "user", text: "ok", seq: 1 }]);
   expect(await readFile(join(directory, tail), "utf8")).toBe('{"type":"user","text":"ok","seq":1}\n');
   await persistence.append(tail, { type: "assistant", text: "continued", seq: 2 } as SessionEvent);

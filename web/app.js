@@ -1325,7 +1325,8 @@ function markCurrentButton() {
 }
 
 async function loadSession(source, file) {
-  const run = runningSessions.get(`${source}/${file}`);
+  const key = `${source}/${file}`;
+  const run = runningSessions.get(key);
   if (run !== undefined) run.live = false;
   current = { source, file };
   sessionTitle.textContent = `${source}/${file}`;
@@ -1337,9 +1338,16 @@ async function loadSession(source, file) {
       `/api/sessions/${encodeURIComponent(source)}/${encodeURIComponent(file)}`,
     );
     const data = await res.json();
+    if (!isCurrentSession(source, file)) return;
     if (!res.ok) throw new Error(data.error ?? "加载失败");
     renderSession(data);
+    const stillRunning = runningSessions.get(key);
+    if (stillRunning !== undefined) {
+      stillRunning.live = true;
+      mainStatus.textContent = "Agent 运行中…";
+    }
   } catch (err) {
+    if (!isCurrentSession(source, file)) return;
     mainStatus.textContent = err instanceof Error ? err.message : "加载失败";
     mainStatus.classList.add("error");
     renderTranscript([]);
