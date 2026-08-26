@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { SandboxExecutionPolicy } from "./sandbox-service.ts";
 import type { ShellProvider } from "./shell-service.ts";
 import { ToolError, type ToolRegistry } from "./tools.ts";
-import { renderCaptions, renderFrame, resolveVisualTemplate } from "./hyperframes-visual.ts";
+import { renderCaptions, renderFrame, resolveVisualTemplate, spokenNarration } from "./hyperframes-visual.ts";
 
 const HYPERFRAMES_VERSION = "0.7.108";
 const SOURCE_EXTENSIONS = new Set([".c", ".cc", ".cpp", ".cs", ".go", ".java", ".js", ".jsx", ".kt", ".md", ".php", ".py", ".rb", ".rs", ".sh", ".sql", ".ts", ".tsx", ".vue"]);
@@ -175,6 +175,7 @@ export function installHyperframesVideo(
         if (plan.requireNarration && plan.scenes.some((scene) => scene.audioPath === undefined)) {
           throw new ToolError("视频要求有声交付，但仍有场景缺少旁白音频", "VIDEO_AUDIO_INCOMPLETE");
         }
+        await writeFile(join(project, "compositions", "captions.html"), renderCaptions(plan));
         const output = join(project, "renders", `${plan.slug}.mp4`);
         const npmCache = join(project, ".npm-cache");
         const tmpDir = join(project, ".hyperframes-tmp");
@@ -357,7 +358,7 @@ export async function generateVoice(project: string, options: {
     const relativeAudio = `assets/voice/${filename}`;
     const absoluteAudio = join(voiceDir, filename);
     const bytes = await options.synthesize({
-      text: normalizeNarration(scene.narration),
+      text: spokenNarration(scene.narration),
       voice,
       model: options.model,
       signal: options.signal,
@@ -767,7 +768,6 @@ function stringValue(value: unknown, label: string) { if (typeof value !== "stri
 function stringArray(value: unknown, label: string, max: number) { if (!Array.isArray(value) || value.length > max || value.some((item) => typeof item !== "string" || item.trim().length === 0)) throw new ToolError(`${label} 必须是最多 ${max} 个非空字符串`, "VIDEO_PLAN_INVALID"); return value.map((item) => String(item).trim()); }
 function colorValue(value: unknown, label: string) { const color = stringValue(value, label); if (!/^#[0-9a-f]{6}$/iu.test(color)) throw new ToolError(`${label} 必须是六位十六进制颜色`, "VIDEO_PLAN_INVALID"); return color; }
 function booleanValue(value: unknown, label: string) { if (typeof value !== "boolean") throw new ToolError(`${label} 必须是布尔值`, "VIDEO_PLAN_INVALID"); return value; }
-function normalizeNarration(text: string) { return text.replace(/_/gu, " ").replace(/\s+/gu, " ").trim(); }
 function nestedString(value: Record<string, unknown>, path: readonly string[]): string | undefined { let current: unknown = value; for (const key of path) { if (!isObject(current)) return undefined; current = current[key]; } return typeof current === "string" && current.length > 0 ? current : undefined; }
 function isNodeError(error: unknown, code: string) { return isObject(error) && error.code === code; }
 function isObject(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }

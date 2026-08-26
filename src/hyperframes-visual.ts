@@ -27,6 +27,25 @@ const KICKERS: Record<FrameKind, string> = {
   boundary: "BOUNDARY · 边界",
 };
 
+/** 字幕把朗读用字还原成符号；配音则跳过这些符号，避免读出「斜杠」「减号」。 */
+export function captionNarration(text: string): string {
+  return text
+    .replace(/\s*反斜杠\s*/gu, "\\")
+    .replace(/\s*斜杠\s*/gu, "/")
+    .replace(/\s*下划线\s*/gu, "_")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+export function spokenNarration(text: string): string {
+  return text
+    .replace(/反斜杠|斜杠|斜线|减号|横杠|下划线|反斜线/gu, " ")
+    .replace(/[\\/_]+/gu, " ")
+    .replace(/(?<=[A-Za-z0-9])-(?=[A-Za-z0-9])/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
 export function resolveVisualTemplate(scene: VisualScene, index: number, total: number): FrameKind {
   if (scene.template) return scene.template;
   if (index === 0) return "hook";
@@ -100,7 +119,7 @@ export function renderCaptions(plan: VisualPlan): string {
   const cues = plan.scenes.map((scene) => {
     const start = cursor;
     cursor += scene.duration;
-    return { start, end: cursor, text: scene.narration };
+    return { start, end: cursor, text: captionNarration(scene.narration) };
   });
   return `<template>
 <style>

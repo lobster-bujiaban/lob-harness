@@ -230,7 +230,10 @@ function pathName(path) {
 
 function relativeTime(updatedAt) {
   const days = Math.floor((Date.now() - updatedAt) / 86_400_000);
-  if (days <= 0) return "今天";
+  if (days <= 0) {
+    const date = new Date(updatedAt);
+    return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  }
   return `${days}天`;
 }
 

@@ -21,7 +21,7 @@ const plan: HyperframesPlan = {
   saveValue: ["恢复链路", "适用边界"],
   seriesNext: "工具调用如何恢复",
   scenes: [
-    { id: "hook", title: "Demo Agent 为什么会中断？", narration: "先看 Demo Agent 的问题。", duration: 10, template: "hook" },
+    { id: "hook", title: "Demo Agent 为什么会中断？", narration: "源码在 GitHub 的 lobster-bujiaban 斜杠 demo-agent。", duration: 10, template: "hook" },
     {
       id: "flow", title: "事件留下事实", narration: "再看主链路。", duration: 10, template: "flow", bullets: ["写入事件", "重新投影"],
       evidence: [
@@ -68,6 +68,9 @@ test("结构化方案生成完整 Hyperframes 工程", async () => {
   expect(hook).toContain("assets/vendor/gsap.min.js");
   expect(hook).not.toContain("template-hook");
   expect(hook).not.toContain('class="clip f-head"');
+  const captions = await readFile(join(output, "compositions", "captions.html"), "utf8");
+  expect(captions).toContain("lobster-bujiaban/demo-agent");
+  expect(captions).not.toContain("斜杠");
   expect(await readFile(join(output, "assets", "vendor", "gsap.min.js"), "utf8")).toContain("gsap");
   const index = await readFile(join(output, "index.html"), "utf8");
   expect(index).toContain('data-width="1080"');
@@ -98,13 +101,19 @@ test("配音按真实时长回写工程并持久化音色", async () => {
       return { exitCode: 0, signal: null, stdout: "9.65\n", stderr: "", truncated: false, timedOut: false, aborted: false };
     },
   };
+  const spoken: string[] = [];
   const result = await generateVoice(output, {
     shell,
     signal: new AbortController().signal,
     voices: ["longanyang"],
     model: "cosyvoice-v3-flash",
-    synthesize: async () => new Uint8Array([1, 2, 3]),
+    synthesize: async ({ text }) => {
+      spoken.push(text);
+      return new Uint8Array([1, 2, 3]);
+    },
   });
+  expect(spoken[0]).toContain("lobster bujiaban demo agent");
+  expect(spoken[0]).not.toMatch(/[/\-_]|斜杠|减号/u);
   expect(result).toMatchObject({ status: "completed", voice: "longanyang", scenes: 3, duration: 30 });
   expect(JSON.parse(await readFile(join(output, "audio-meta.json"), "utf8"))).toMatchObject({
     provider: "cosyvoice",
