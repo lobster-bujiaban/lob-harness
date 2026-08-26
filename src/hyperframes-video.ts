@@ -555,7 +555,12 @@ function renderPublishCopy(plan: HyperframesPlan): string {
   const saveValue = plan.saveValue ?? [];
   const repo = githubRepoLabel(plan.repositoryUrl ?? "");
   const repoLine = repo.length === 0 ? "" : `这是「${plan.creatorName ?? "虾哥不加班"}」公开研发的 ${plan.projectName}，源码已发布到 GitHub：${repo}`;
-  return `# 发布文案\n\n## 标题\n\n${title}\n\n## 描述\n\n${plan.audienceQuestion ?? title}\n\n${repoLine}\n\n${saveValue.length > 0 ? `这条视频讲清：${saveValue.join("、")}。建议收藏，遇到类似问题时可以按步骤排查。` : ""}\n\n${keywords.map((keyword) => `#${keyword.replace(/\s+/gu, "")}`).join(" ")}\n\n## 置顶评论\n\n项目源码：${repo}\n关注「${plan.creatorName ?? "虾哥不加班"}」，持续公开 AI Agent 研发与源码拆解。${plan.seriesNext ? `下一期：${plan.seriesNext}。` : ""}\n\n## 发布检查\n\n- 第一帧清楚显示项目名、虾哥公开研发和 GitHub 仓库。\n- 全片只使用项目自带 Logo，不出现二维码或扫码引导。\n- 标题以句号结尾，抖音会把标题和描述连在一起显示。\n- 文案里的仓库写成 owner/repo，不写 https 链接。\n- 标签不超过 5 个。\n- 标题、口播、字幕自然包含核心搜索词，不堆砌关键词。\n`;
+  const coverValue = saveValue.slice(0, 2).join("、") || plan.projectIdentity || plan.scenes[0]?.title || plan.projectName;
+  const coverLogo = plan.logoPath === undefined
+    ? `没有项目 Logo，使用“${plan.projectName}”文字标识`
+    : `使用当前项目 Logo（${plan.logoPath}）`;
+  const coverPrompt = `抖音知识科普视频竖版封面，9:16，1080×1920。主题：${title} 主标题突出“${title}”，副视觉表达“${coverValue}”。${coverLogo}，并用与本期源码机制直接相关的结构图、流程节点或前后对照作为视觉主体。纸面手绘编辑风格，黑白灰为底，项目强调色点睛，强对比、大字号、主体清晰，手机缩略图下仍可辨认；标题位于中上安全区，关键视觉居中，底部预留平台信息区域。画面体现真实技术内容和项目独特性，不使用通用 AI 机器人素材，不出现二维码、虚假数据、夸张承诺、无关品牌、水印或密集小字。`;
+  return `# 发布文案\n\n## 标题\n\n${title}\n\n## 描述\n\n${plan.audienceQuestion ?? title}\n\n${repoLine}\n\n${saveValue.length > 0 ? `这条视频讲清：${saveValue.join("、")}。建议收藏，遇到类似问题时可以按步骤排查。` : ""}\n\n${keywords.map((keyword) => `#${keyword.replace(/\s+/gu, "")}`).join(" ")}\n\n## 封面提示词\n\n${coverPrompt}\n\n## 置顶评论\n\n项目源码：${repo}\n关注「${plan.creatorName ?? "虾哥不加班"}」，持续公开 AI Agent 研发与源码拆解。${plan.seriesNext ? `下一期：${plan.seriesNext}。` : ""}\n\n## 发布检查\n\n- 第一帧清楚显示项目名、虾哥公开研发和 GitHub 仓库。\n- 封面标题与正文结论一致，手机缩略图下仍然清晰。\n- 全片和封面只使用项目自带 Logo，不出现二维码或扫码引导。\n- 标题以句号结尾，抖音会把标题和描述连在一起显示。\n- 文案里的仓库写成 owner/repo，不写 https 链接。\n- 标签不超过 5 个。\n- 标题、口播、字幕自然包含核心搜索词，不堆砌关键词。\n`;
 }
 
 function contentChecks(plan: HyperframesPlan) {
