@@ -7,6 +7,7 @@ import { runTurn } from "../src/loop.ts";
 import { append, load, projectMessages, type ModelMessage } from "../src/session.ts";
 import { CharacterTokenMeter } from "../src/context.ts";
 import { SystemPromptRegistry } from "../src/system-prompt.ts";
+import { createDefaultToolRegistry } from "../src/tools.ts";
 
 test("输入你好后，日志是 user + assistant，最后一条是假模型的固定回复", async () => {
   const dir = await mkdtemp(join(tmpdir(), "tiny-harness-"));
@@ -65,7 +66,8 @@ test("超预算时持久化压缩事件并用压缩后的 surface 请求模型",
   const requests: ModelMessage[][] = [];
   const llm = { async complete(messages: ModelMessage[]) { requests.push(messages); return { kind: "text" as const, text: "done" }; } };
   await runTurn(path, llm, "next", {
-    contextBudget: { maxInputTokens: 700, meter: new CharacterTokenMeter(), preserveRecent: 1 },
+    contextBudget: { maxInputTokens: 400, meter: new CharacterTokenMeter(), preserveRecent: 1 },
+    toolRegistry: createDefaultToolRegistry(),
   });
   const compacted = (await load(path)).find((event) => event.type === "context_compacted");
   expect(compacted).toMatchObject({ type: "context_compacted", strategy: "summary" });

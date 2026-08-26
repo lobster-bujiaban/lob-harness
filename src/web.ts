@@ -12,7 +12,7 @@ import { PluginStore } from "./plugins.ts";
 import { JsonlSessionPersistence, type SessionPersistence } from "./session-persistence.ts";
 import { forkSession } from "./session-store.ts";
 import { CharacterTokenMeter, type ContextBudget } from "./context.ts";
-import { SystemPromptRegistry, SystemPromptService } from "./system-prompt.ts";
+import { SystemPromptRegistry, SystemPromptService, defaultCodingPrompt } from "./system-prompt.ts";
 import { Context } from "@deepseek-ai/cordis";
 import { settingsLlmProvider } from "./llm-service.ts";
 import { assembleWebContext, dumpWebConfig, loadWebConfig, readProfilePatch, type ProductConfig } from "./composition.ts";
@@ -518,6 +518,9 @@ export function createWebServer(options?: {
   const llmSettings =
     options?.llmSettings ?? new LlmSettingsStore(join(roots.tmp, "config"));
   const systemPrompts = options?.systemPrompts ?? new SystemPromptRegistry();
+  if (options?.systemPrompts === undefined) {
+    systemPrompts.register({ id: "coding", text: defaultCodingPrompt });
+  }
   const contextBudget = options?.contextBudget ?? {
     // DeepSeek 128K 上下文窗口的 80% 压力线；Meter 使用约 4 chars/token 的启发式。
     maxInputTokens: Math.floor(131_072 * 0.8),

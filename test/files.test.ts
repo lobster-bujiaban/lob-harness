@@ -73,12 +73,14 @@ test("卸载 read_file 同时移除工具和路径策略", async () => {
   const dispose = installReadFile(registry, { root: base, provider: new LocalFsProvider() });
   expect(registry.get("read_file")).toBeDefined();
   expect(registry.get("write_file")).toBeDefined();
+  expect(registry.get("grep")).toBeDefined();
 
   dispose();
   dispose();
 
   expect(registry.get("read_file")).toBeUndefined();
   expect(registry.get("write_file")).toBeUndefined();
+  expect(registry.get("grep")).toBeUndefined();
   expect(await registry.execute("other", {}, new AbortController().signal))
     .toMatchObject({ isError: true, error: { code: "UNKNOWN_TOOL" } });
 });
@@ -112,6 +114,40 @@ test("list_files 支持扩展名过滤、排除目录和 count 模式", async ()
   }, new AbortController().signal);
   expect(listed.output).toContain("one.pdf");
   expect(listed.output).toContain("… 1 more files");
+});
+
+test("list_files 默认跳过 dist 并先列出子目录", async () => {
+  const { root, registry } = await fixture();
+  await mkdir(join(root, "dmp-web"));
+  await mkdir(join(root, "dist", "assets"), { recursive: true });
+  await writeFile(join(root, "dmp-web", "App.java"), "class App {}", "utf8");
+  await writeFile(join(root, "dist", "assets", "index.js"), "bundle", "utf8");
+
+  const listed = await registry.execute("list_files", { maxResults: 20 }, new AbortController().signal);
+  expect(listed.isError).toBe(false);
+  expect(listed.output).toContain("dmp-web/");
+  expect(listed.output).toContain("dmp-web/App.java");
+  expect(listed.output).not.toContain("dist/");
+  expect(listed.output).not.toContain("index.js");
+});
+
+test("grep 在工作区内按正则搜索，并可按文件名过滤", async () => {
+  const { root, registry } = await fixture();
+  await mkdir(join(root, "dmp-web"));
+  await writeFile(join(root, "dmp-web", "DeviceServiceImpl.java"), "updateDevBot\nput mapping /device/dev-bot\n", "utf8");
+  await writeFile(join(root, "readme.md"), "dev-bot is documented", "utf8");
+
+  const found = await registry.execute("grep", {
+    pattern: "dev-bot",
+    include: "*.java",
+  }, new AbortController().signal);
+  expect(found).toEqual({
+    output: "dmp-web/DeviceServiceImpl.java:2:put mapping /device/dev-bot",
+    isError: false,
+  });
+
+  const missing = await registry.execute("grep", { pattern: "no-such-symbol" }, new AbortController().signal);
+  expect(missing).toEqual({ output: "No matches found", isError: false });
 });
 
 test("list_files 拒绝非法查询参数", async () => {

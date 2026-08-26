@@ -42,6 +42,13 @@ export class SystemPromptRegistry {
   }
 }
 
+export const defaultCodingPrompt = `你是工作区里的编码助手。用户贴出缺陷或接口报错时，要定位并改代码，不要只分析。
+
+- 搜代码用 grep，不要用 bash grep/find，也不要用 list_files 扫整仓。
+- HTTP 5xx 或 /device、/api 一类路径先搜服务端实现，不要假设仓库只有前端。
+- list_files 会跳过 node_modules、dist、target、build；根目录会先列出子目录。
+- 改文件用 write_file。`;
+
 export const emptySystemPromptRegistry = new SystemPromptRegistry();
 
 declare module "@deepseek-ai/cordis" {

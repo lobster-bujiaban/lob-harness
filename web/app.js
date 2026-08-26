@@ -692,41 +692,46 @@ function renderTranscript(events) {
     if (event.type === "assistant") renderMarkdown(body, event.text);
     else body.textContent = summary(event);
     article.append(meta, body);
-    if (event.type === "assistant") article.append(createMessageActions(event));
+    if (event.type === "user") article.append(createMessageActions(event, { copyLabel: "复制输入" }));
+    if (event.type === "assistant") article.append(createMessageActions(event, { copyLabel: "复制回复", includeFork: true }));
     transcript.append(article);
   }
   transcript.lastElementChild?.scrollIntoView({ block: "end" });
 }
 
-function createMessageActions(event) {
+function createMessageActions(event, options = {}) {
+  const copyLabel = options.copyLabel ?? "复制";
   const actions = document.createElement("div");
   actions.className = "msg-actions";
   const copy = document.createElement("button");
   copy.type = "button";
   copy.className = "msg-action";
   copy.innerHTML = svgIcon("copy");
-  copy.title = "复制回复";
-  copy.setAttribute("aria-label", "复制回复");
+  copy.title = copyLabel;
+  copy.setAttribute("aria-label", copyLabel);
   copy.addEventListener("click", async () => {
     try {
-      await copyText(event.text);
+      await copyText(event.text ?? "");
       copy.textContent = "✓";
       copy.title = "已复制";
-      setTimeout(() => { copy.innerHTML = svgIcon("copy"); copy.title = "复制回复"; }, 1_500);
+      setTimeout(() => { copy.innerHTML = svgIcon("copy"); copy.title = copyLabel; }, 1_500);
     } catch {
       mainStatus.textContent = "复制失败";
       mainStatus.classList.add("error");
     }
   });
-  const fork = document.createElement("button");
-  fork.type = "button";
-  fork.className = "msg-action";
-  fork.innerHTML = svgIcon("fork");
-  fork.title = `从这条回复创建分支（事件 #${event.seq}）`;
-  fork.setAttribute("aria-label", "从这条回复创建分支");
-  fork.disabled = !Number.isInteger(event.seq);
-  fork.addEventListener("click", () => { void forkSessionAt(event.seq, "chat"); });
-  actions.append(copy, fork);
+  actions.append(copy);
+  if (options.includeFork) {
+    const fork = document.createElement("button");
+    fork.type = "button";
+    fork.className = "msg-action";
+    fork.innerHTML = svgIcon("fork");
+    fork.title = `从这条回复创建分支（事件 #${event.seq}）`;
+    fork.setAttribute("aria-label", "从这条回复创建分支");
+    fork.disabled = !Number.isInteger(event.seq);
+    fork.addEventListener("click", () => { void forkSessionAt(event.seq, "chat"); });
+    actions.append(fork);
+  }
   return actions;
 }
 
@@ -759,6 +764,7 @@ function appendLiveMessage(label, text, className = "") {
   body.className = "msg-body";
   body.textContent = text;
   article.append(meta, body);
+  if (label === "用户") article.append(createMessageActions({ text }, { copyLabel: "复制输入" }));
   transcript.append(article);
   article.scrollIntoView({ block: "end" });
   return body;

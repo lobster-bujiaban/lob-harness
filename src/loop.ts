@@ -55,13 +55,15 @@ export type RunTurnOptions = {
   contextBudget?: ContextBudget;
 };
 
+export const DEFAULT_MAX_STEPS = 32;
+
 export async function runTurn(
   path: string,
   llm: LlmClient,
   userText: string,
   options?: RunTurnOptions,
 ): Promise<void> {
-  const maxSteps = options?.maxSteps ?? 8;
+  const maxSteps = options?.maxSteps ?? DEFAULT_MAX_STEPS;
   const signal = options?.signal ?? new AbortController().signal;
   const toolRegistry = options?.toolRegistry ?? defaultToolRegistry;
   const maxToolConcurrency = options?.maxToolConcurrency ?? 4;

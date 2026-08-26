@@ -142,6 +142,16 @@ test("真实适配器按标准协议完成 echo 工具闭环", async () => {
       {
         type: "function",
         function: {
+          name: "grep",
+          parameters: {
+            type: "object",
+            required: ["pattern"],
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
           name: "bash",
           parameters: {
             type: "object",

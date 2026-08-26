@@ -115,6 +115,7 @@ test("插件启用 MCP 后出现远端工具，禁用后本地工具仍在", asy
     "read_file",
     "list_files",
     "write_file",
+    "grep",
     "bash",
   ]);
 
@@ -123,6 +124,6 @@ test("插件启用 MCP 后出现远端工具，禁用后本地工具仍在", asy
 
   await store.update("mcp-client", { enabled: false });
   const names = (await store.createToolRegistry(directory)).schemas().map((tool) => tool.name);
-  expect(names).toEqual(["echo", "read_file", "list_files", "write_file", "bash"]);
+  expect(names).toEqual(["echo", "read_file", "list_files", "write_file", "grep", "bash"]);
   expect(names.includes("mcp__demo__ping")).toBe(false);
 });

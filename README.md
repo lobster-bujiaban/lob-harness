@@ -97,7 +97,7 @@ Web 还提供插件启停、配置保存和教学版热重载。热重载会先�
 | 类别 | 工具 |
 |---|---|
 | 基础 | `echo` |
-| 工作区 | `read_file`、`list_files`、`write_file` |
+| 工作区 | `read_file`、`list_files`、`write_file`、`grep` |
 | Shell | `bash` |
 | 委派 | `subagent` |
 | 后台任务 | `job`、`job_output`、`job_kill` |

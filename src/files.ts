@@ -15,6 +15,7 @@ export function installReadFile(
   const configuredRoot = resolve(options.root);
   const canonicalRoot = provider.canonicalize(configuredRoot);
   const admitted = new WeakMap<Readonly<ToolExecution>, string>();
+  const admittedGrep = new WeakMap<Readonly<ToolExecution>, GrepAdmission>();
 
   const disposeReadPolicy = registry.onPreExecute(async (execution, next) => {
     if (execution.name !== "read_file") return next();
@@ -94,7 +95,7 @@ export function installReadFile(
 
   const disposeListFiles = registry.register({
     name: "list_files",
-    description: "递归查询工作区文件。统计数量时使用 mode=count，并尽量用 extensions 过滤，避免返回大清单。",
+    description: "列出工作区文件。默认跳过 node_modules、dist、target、build、coverage。未过滤扩展名时先列出当前目录的子目录。看仓库结构用较小 maxResults；搜符号用 grep，不要扫整仓。",
     parameters: {
       type: "object",
       properties: {
@@ -144,8 +145,13 @@ export function installReadFile(
       if (query.mode === "count") {
         return JSON.stringify({ count: files.length, path: requested || ".", extensions: query.extensions });
       }
-      const capped = files.slice(0, query.maxResults);
-      return `${capped.join("\n")}${files.length > capped.length ? `\n… ${files.length - capped.length} more files` : ""}`;
+      const directories = query.extensions.length === 0
+        ? await listImmediateDirectories(provider, canonical, context.signal, query)
+        : [];
+      const listing = [...directories, ...files];
+      const capped = listing.slice(0, query.maxResults);
+      const omitted = listing.length - capped.length;
+      return `${capped.join("\n")}${omitted > 0 ? `\n… ${omitted} more files` : ""}`;
     },
   });
 
@@ -182,7 +188,121 @@ export function installReadFile(
     },
   });
 
+  const disposeGrepPolicy = registry.onPreExecute(async (execution, next) => {
+    if (execution.name !== "grep") return next();
+    const pattern = readStringArgument(execution.args, "pattern");
+    if (pattern === undefined) {
+      return { kind: "deny", reason: "grep requires a non-empty pattern" };
+    }
+    try {
+      new RegExp(pattern);
+    } catch {
+      return { kind: "deny", reason: "grep pattern is not a valid regular expression" };
+    }
+    const include = readStringArgument(execution.args, "include");
+    const maxMatches = readMaxMatches(execution.args);
+    if (maxMatches === "invalid") {
+      return { kind: "deny", reason: "grep maxMatches must be an integer between 1 and 500" };
+    }
+    const requested = readPathArgument(execution.args) ?? ".";
+    const candidate = isAbsolute(requested) ? resolve(requested) : resolve(configuredRoot, requested);
+    if (!isWithin(configuredRoot, candidate)) {
+      return { kind: "deny", reason: "grep path is outside the allowed root" };
+    }
+    try {
+      const [root, target] = await Promise.all([
+        canonicalRoot,
+        provider.canonicalize(candidate),
+      ]);
+      if (!isWithin(root, target)) {
+        return { kind: "deny", reason: "grep path resolves outside the allowed root" };
+      }
+      const kind = (await provider.stat(target)).kind;
+      if (kind !== "file" && kind !== "directory") {
+        return { kind: "deny", reason: "grep path must be a file or directory" };
+      }
+      admittedGrep.set(execution, {
+        target,
+        kind,
+        pattern,
+        include,
+        maxMatches: maxMatches ?? 80,
+      });
+    } catch (error) {
+      if (isMissing(error)) throw new ToolError("grep target does not exist", "FS_NOT_FOUND", { cause: error });
+      throw error;
+    }
+    return next();
+  });
+
+  const disposeGrep = registry.register({
+    name: "grep",
+    description: "在工作区内用正则搜索文件内容。HTTP 5xx 或接口路径应先 grep 服务端实现，不要用 bash grep，也不要用 list_files 扫整仓。",
+    parameters: {
+      type: "object",
+      properties: {
+        pattern: { type: "string", description: "JavaScript 正则，搜索文件内容" },
+        path: { type: "string", description: "相对工作区的文件或目录，默认整个工作区" },
+        include: { type: "string", description: "文件名 glob，例如 *.java 或 *ServiceImpl.java" },
+        maxMatches: { type: "integer", description: "最大匹配条数，默认 80，最大 500" },
+      },
+      required: ["pattern"],
+      additionalProperties: false,
+    },
+    executionMode: { kind: "parallel" },
+    timeoutMs: 30_000,
+    async execute(_args, context) {
+      const call = admittedGrep.get(context.execution);
+      if (call === undefined) {
+        throw new ToolError("grep path was not admitted by policy", "FS_NOT_ADMITTED");
+      }
+      const root = await canonicalRoot;
+      const regex = new RegExp(call.pattern);
+      const files = call.kind === "file"
+        ? [call.target]
+        : (await walkFiles(provider, call.target, context.signal, {
+          path: ".",
+          extensions: [],
+          exclude: defaultExcludeSet(),
+          excludeHidden: true,
+          mode: "list",
+          maxResults: 5000,
+        })).map((relativePath) => join(call.target, relativePath));
+      const matches: string[] = [];
+      let extra = 0;
+      for (const file of files) {
+        context.signal.throwIfAborted();
+        const relativePath = relative(root, file).replaceAll("\\", "/") || basename(file);
+        if (!matchesInclude(relativePath, call.include)) continue;
+        let text: string;
+        try {
+          const metadata = await provider.stat(file);
+          if (metadata.kind !== "file" || metadata.size > maxBytes) continue;
+          text = await provider.readText(file, context.signal);
+        } catch (error) {
+          if (isToolErrorCode(error, "FS_INVALID_UTF8")) continue;
+          throw error;
+        }
+        const lines = text.split(/\r?\n/u);
+        for (let index = 0; index < lines.length; index++) {
+          const line = lines[index];
+          if (line === undefined || !regex.test(line)) continue;
+          if (matches.length >= call.maxMatches) {
+            extra++;
+            continue;
+          }
+          const preview = line.length > 240 ? `${line.slice(0, 240)}…` : line;
+          matches.push(`${relativePath}:${index + 1}:${preview}`);
+        }
+      }
+      if (matches.length === 0) return "No matches found";
+      return extra > 0 ? `${matches.join("\n")}\n… ${extra} more matches` : matches.join("\n");
+    },
+  });
+
   return () => {
+    disposeGrep();
+    disposeGrepPolicy();
     disposeWriteFile();
     disposeListFiles();
     disposeReadFile();
@@ -199,6 +319,20 @@ type ListFilesQuery = {
   mode: "list" | "count";
   maxResults: number;
 };
+
+type GrepAdmission = {
+  target: string;
+  kind: "file" | "directory";
+  pattern: string;
+  include: string | undefined;
+  maxMatches: number;
+};
+
+const DEFAULT_LIST_EXCLUDES = ["node_modules", "dist", "target", "build", "coverage"] as const;
+
+function defaultExcludeSet(): Set<string> {
+  return new Set(DEFAULT_LIST_EXCLUDES);
+}
 
 function parseListFilesArgs(args: unknown): ListFilesQuery {
   const value = typeof args === "object" && args !== null ? args as Record<string, unknown> : {};
@@ -225,7 +359,7 @@ function parseListFilesArgs(args: unknown): ListFilesQuery {
   return {
     path,
     extensions: [...new Set(extensions)],
-    exclude: new Set(["node_modules", ...excluded].map(normalizeRelative)),
+    exclude: new Set([...DEFAULT_LIST_EXCLUDES, ...excluded].map(normalizeRelative)),
     excludeHidden: value.excludeHidden !== false,
     mode,
     maxResults: Number(maxResults),
@@ -247,6 +381,22 @@ async function walkFiles(provider: FsProvider, root: string, signal: AbortSignal
   }
   await visit(root, "");
   return files;
+}
+
+async function listImmediateDirectories(
+  provider: FsProvider,
+  root: string,
+  signal: AbortSignal,
+  query: ListFilesQuery,
+): Promise<string[]> {
+  const directories: string[] = [];
+  for (const entry of await provider.readDirectory(root, signal)) {
+    signal.throwIfAborted();
+    if (entry.kind !== "directory" || isExcluded(entry.name, entry.name, query)) continue;
+    directories.push(`${entry.name}/`);
+  }
+  directories.sort((left, right) => left.localeCompare(right));
+  return directories;
 }
 
 async function resolveWriteTarget(
@@ -305,10 +455,33 @@ function normalizeRelative(path: string): string {
 }
 
 function readPathArgument(args: unknown): string | undefined {
-  if (typeof args !== "object" || args === null || !("path" in args)) return undefined;
-  const value = (args as { path: unknown }).path;
+  return readStringArgument(args, "path");
+}
+
+function readStringArgument(args: unknown, name: string): string | undefined {
+  if (typeof args !== "object" || args === null || !(name in args)) return undefined;
+  const value = (args as Record<string, unknown>)[name];
   if (typeof value !== "string" || value.trim().length === 0) return undefined;
-  return value;
+  return name === "pattern" ? value : value.trim();
+}
+
+function readMaxMatches(args: unknown): number | undefined | "invalid" {
+  if (typeof args !== "object" || args === null || !("maxMatches" in args)) return undefined;
+  const value = (args as { maxMatches?: unknown }).maxMatches;
+  if (value === undefined) return undefined;
+  if (!Number.isInteger(value) || Number(value) < 1 || Number(value) > 500) return "invalid";
+  return Number(value);
+}
+
+function matchesInclude(path: string, include: string | undefined): boolean {
+  if (include === undefined) return true;
+  const name = basename(path);
+  const escaped = include.replace(/[.+^${}()|[\]\\]/gu, "\\$&").replace(/\*/gu, ".*").replace(/\?/gu, ".");
+  return new RegExp(`^${escaped}$`, "u").test(name);
+}
+
+function isToolErrorCode(error: unknown, code: string): boolean {
+  return error instanceof ToolError && error.code === code;
 }
 
 function readContentArgument(args: unknown): string | undefined {
