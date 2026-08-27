@@ -62,7 +62,10 @@ for (const [name, createProvider] of factories) {
         store.append(id, { type: "end", reason: "done" }),
       ]);
 
-      expect((await store.load(id)).map((event) => event.seq)).toEqual([1, 2, 3]);
+      const loaded = await store.load(id);
+      expect(loaded.map((event) => event.seq)).toEqual([1, 2, 3]);
+      expect(loaded.every((event) => typeof event.at === "number")).toBe(true);
+      expect(loaded[1]?.at).toBeGreaterThanOrEqual(loaded[0]?.at ?? 0);
       expect(observed).toEqual([1, 2, 3]);
     });
 

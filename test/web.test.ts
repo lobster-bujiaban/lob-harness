@@ -495,14 +495,15 @@ test("临时会话可持久选择 workspace，fixture 和非目录被拒绝", as
     const loaded = await fetch(`${base}/tmp/session.jsonl`);
     const session = await loaded.json() as {
       workspaceRoot: string;
-      events: Array<{ type: string; path?: string }>;
+      events: Array<{ type: string; path?: string; at?: number }>;
     };
     expect(session.workspaceRoot).toBe(await realpath(workspace));
-    expect(session.events.at(-1)).toEqual({
+    expect(session.events.at(-1)).toMatchObject({
       type: "workspace_root",
       path: await realpath(workspace),
       seq: 1,
     });
+    expect(typeof session.events.at(-1)?.at).toBe("number");
 
     const fixture = await fetch(`${base}/fixtures/replay.jsonl/workspace`, {
       method: "PUT",

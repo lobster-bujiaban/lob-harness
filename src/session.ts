@@ -130,7 +130,7 @@ export async function load(path: string): Promise<SessionEvent[]> {
     .split("\n")
     .filter((line) => line.length > 0)
     .map((line) => {
-      const { seq: _seq, ...event } = JSON.parse(line) as SessionEvent & { seq?: number };
+      const { seq: _seq, at: _at, ...event } = JSON.parse(line) as SessionEvent & { seq?: number; at?: number };
       return event as SessionEvent;
     });
 }

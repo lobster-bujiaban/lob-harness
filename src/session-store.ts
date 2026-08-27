@@ -1,7 +1,7 @@
 import type { SessionPersistence, PersistedSession } from "./session-persistence.ts";
 import type { SessionEvent } from "./session.ts";
 
-export type SequencedSessionEvent = SessionEvent & { seq: number };
+export type SequencedSessionEvent = SessionEvent & { seq: number; at?: number };
 export type SessionSubscription = (event: SequencedSessionEvent) => void | Promise<void>;
 
 type CachedSession = {
@@ -31,7 +31,11 @@ export class SessionStore implements SessionPersistence {
     const previous = this.writes.get(id) ?? Promise.resolve();
     const current = previous.then(async () => {
       const session = await this.cached(id, true);
-      const sequenced = { ...event, seq: session.events.length + 1 } as SequencedSessionEvent;
+      const sequenced = {
+        ...event,
+        seq: session.events.length + 1,
+        at: eventTime(event) ?? Date.now(),
+      } as SequencedSessionEvent;
       await this.persistence.append(id, sequenced);
       session.events.push(structuredClone(sequenced));
       session.projections.clear();
@@ -91,6 +95,12 @@ export class SessionStore implements SessionPersistence {
     this.cache.set(id, session);
     return session;
   }
+}
+
+function eventTime(event: SessionEvent): number | undefined {
+  if (!("at" in event)) return undefined;
+  const at = (event as { at?: unknown }).at;
+  return typeof at === "number" && Number.isFinite(at) ? at : undefined;
 }
 
 function isMissing(error: unknown): boolean {

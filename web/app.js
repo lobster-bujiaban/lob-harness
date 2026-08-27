@@ -375,6 +375,7 @@ function mergeFlowEvents(events) {
     if (sameChunkStream) {
       previous.chunkCount += 1;
       previous.seqEnd = event.seq ?? previous.seqEnd;
+      if (typeof event.at === "number") previous.atEnd = event.at;
       if (event.kind === "tool_call") {
         previous.name ||= event.name;
         previous.id ||= event.id;
@@ -408,6 +409,96 @@ function flowSummary(event) {
   return event.text;
 }
 
+function eventTime(event) {
+  return typeof event?.at === "number" && Number.isFinite(event.at) ? event.at : undefined;
+}
+
+function formatDuration(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return "";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  const seconds = ms / 1000;
+  if (seconds < 10) return `${seconds.toFixed(1).replace(/\.0$/, "")}s`;
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds % 60);
+  if (minutes < 60) return `${minutes}m ${String(rest).padStart(2, "0")}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${String(minutes % 60).padStart(2, "0")}m`;
+}
+
+function findPreceding(events, index, match) {
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const event = events[cursor];
+    if (event !== undefined && match(event)) return event;
+  }
+  return undefined;
+}
+
+function spanMs(start, end) {
+  const from = eventTime(start);
+  const to = eventTime(end);
+  return from === undefined || to === undefined ? undefined : to - from;
+}
+
+function nodeDurationMs(events, index) {
+  const event = events[index];
+  if (event === undefined) return undefined;
+  if (event.type === "turn_end") {
+    return spanMs(findPreceding(events, index, (item) => item.type === "turn_start" && item.turn === event.turn), event);
+  }
+  if (event.type === "step_end") {
+    return spanMs(findPreceding(events, index, (item) =>
+      item.type === "step_start" && item.turn === event.turn && item.step === event.step), event);
+  }
+  if (event.type === "request_end") {
+    return spanMs(findPreceding(events, index, (item) =>
+      item.type === "request_start"
+      && item.turn === event.turn
+      && item.step === event.step
+      && item.attempt === event.attempt), event);
+  }
+  if (event.type === "tool_result") {
+    return spanMs(findPreceding(events, index, (item) => item.type === "tool_call" && item.id === event.id), event);
+  }
+  if (event.type === "subagent_ended") {
+    return spanMs(findPreceding(events, index, (item) => item.type === "subagent_started" && item.childId === event.childId), event);
+  }
+  if (event.type === "job_ended") {
+    return spanMs(findPreceding(events, index, (item) => item.type === "job_started" && item.jobId === event.jobId), event);
+  }
+  if (event.type === "approval_decided") {
+    return spanMs(findPreceding(events, index, (item) => item.type === "approval_asked" && item.id === event.id), event);
+  }
+  if (typeof event.atEnd === "number" && eventTime(event) !== undefined) {
+    const streamed = event.atEnd - event.at;
+    if (streamed >= 10) return streamed;
+  }
+  const next = eventTime(events[index + 1]);
+  const start = eventTime(event);
+  if (start === undefined || next === undefined) return undefined;
+  const gap = next - start;
+  return gap >= 1000 ? gap : undefined;
+}
+
+function totalDurationMs(events) {
+  const times = events.map(eventTime).filter((value) => value !== undefined);
+  if (times.length < 2) return undefined;
+  return times.at(-1) - times[0];
+}
+
+function modelDurationMs(events) {
+  let total = 0;
+  let counted = false;
+  for (const [index, event] of events.entries()) {
+    if (event.type !== "request_end") continue;
+    const duration = nodeDurationMs(events, index);
+    if (duration === undefined) continue;
+    total += duration;
+    counted = true;
+  }
+  return counted ? total : undefined;
+}
+
 function tokenRelation(event) {
   if (event.type === "request_start") return { label: "模型调用", tone: "call" };
   if (event.type === "usage") return { label: "Token 计量", tone: "usage" };
@@ -432,7 +523,15 @@ function renderTokenInsights(events) {
   title.textContent = "Token 优化线索";
   const facts = document.createElement("div");
   facts.className = "token-facts";
-  facts.innerHTML = `<span>${calls} 次模型调用</span><span>输入 ${input}</span><span>输出 ${output}</span>`;
+  const modelMs = modelDurationMs(events);
+  const totalMs = totalDurationMs(events);
+  facts.innerHTML = [
+    `<span>${calls} 次模型调用</span>`,
+    `<span>输入 ${input}</span>`,
+    `<span>输出 ${output}</span>`,
+    modelMs === undefined ? "" : `<span>模型 ${formatDuration(modelMs)}</span>`,
+    totalMs === undefined ? "" : `<span>总耗时 ${formatDuration(totalMs)}</span>`,
+  ].join("");
   const tip = document.createElement("p");
   tip.textContent = largest
     ? `最大工具结果：${largest.name}，${largest.output.length.toLocaleString()} 字符。它会进入后续请求上下文；优先让工具过滤目录、限定文件类型或直接返回计数。`
@@ -444,7 +543,10 @@ function renderFlow(events) {
   const merged = mergeFlowEvents(events);
   eventFlow.replaceChildren();
   renderTokenInsights(events);
-  flowStatus.textContent = `${events.length} 条原始事件 → ${merged.length} 个流程节点`;
+  const totalMs = totalDurationMs(events);
+  flowStatus.textContent = totalMs === undefined
+    ? `${events.length} 条原始事件 → ${merged.length} 个流程节点`
+    : `${events.length} 条原始事件 → ${merged.length} 个流程节点 · 总耗时 ${formatDuration(totalMs)}`;
   for (const [index, event] of merged.entries()) {
     const item = document.createElement("li");
     item.className = `flow-node flow-${flowGroup(event)}`;
@@ -471,6 +573,14 @@ function renderFlow(events) {
         ? `#${event.seq}`
         : `#${event.seq}–${event.seqEnd}`;
       labels.append(sequence);
+    }
+    const duration = nodeDurationMs(merged, index);
+    if (duration !== undefined && duration > 1000) {
+      const elapsed = document.createElement("span");
+      elapsed.className = "flow-duration";
+      elapsed.textContent = formatDuration(duration);
+      elapsed.title = "耗时";
+      labels.append(elapsed);
     }
     if (relation) {
       const tokenBadge = document.createElement("span");
