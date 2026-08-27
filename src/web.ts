@@ -46,6 +46,21 @@ const PUBLIC_FILES: Record<string, string> = {
 const SERVER_STARTED_AT = Date.now();
 const execFileAsync = promisify(execFile);
 
+const WINDOWS_DIRECTORY_PICKER = String.raw`
+Add-Type -AssemblyName System.Windows.Forms
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+$dialog = [System.Windows.Forms.FolderBrowserDialog]::new()
+$dialog.Description = 'Select Workspace Directory'
+$dialog.ShowNewFolderButton = $true
+try {
+  if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+    [Console]::Write($dialog.SelectedPath)
+  }
+} finally {
+  $dialog.Dispose()
+}
+`;
+
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -243,16 +258,30 @@ export async function handleRequest(
   }
 
   if (method === "POST" && url.pathname === "/api/workspaces/pick") {
-    if (process.platform !== "darwin") {
-      sendJson(res, 501, { error: "native directory picker is only available on macOS" });
+    if (process.platform !== "darwin" && process.platform !== "win32") {
+      sendJson(res, 501, { error: "native directory picker is only available on macOS and Windows" });
       return;
     }
     try {
-      const { stdout } = await execFileAsync("/usr/bin/osascript", [
-        "-e",
-        'POSIX path of (choose folder with prompt "Select Workspace Directory")',
-      ]);
-      const workspaceRoot = await realpath(stdout.trim());
+      const { stdout } = process.platform === "darwin"
+        ? await execFileAsync("/usr/bin/osascript", [
+            "-e",
+            'POSIX path of (choose folder with prompt "Select Workspace Directory")',
+          ])
+        : await execFileAsync("powershell.exe", [
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-STA",
+            "-Command",
+            WINDOWS_DIRECTORY_PICKER,
+          ], { encoding: "utf8", windowsHide: true });
+      const selected = stdout.trim();
+      if (selected.length === 0) {
+        sendJson(res, 200, { cancelled: true });
+        return;
+      }
+      const workspaceRoot = await realpath(selected);
       if (!(await stat(workspaceRoot)).isDirectory()) throw new Error("workspace must be a directory");
       sendJson(res, 200, { workspaceRoot });
     } catch (error) {
