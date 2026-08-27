@@ -137,7 +137,7 @@ function planSchema() {
           abstract: { type: "string", description: "20～120 字；字段名是 abstract，不要用 summary" },
           tags: { type: "array", items: { type: "string" }, description: "2～5 个标签" },
           shareCopy: { type: "string", description: "20～240 字朋友圈文案；字段名是 shareCopy，不要用 moments" },
-          coverPrompt: { type: "string", description: "只写画面与构图，30～500 字；标题、作者、摘要由工具拼进发布文案" },
+          coverPrompt: { type: "string", description: "30～500 字，可直接给出资图工具；画面可有字可无字，不要写文章标题、作者或摘要" },
         },
         required: ["titles", "abstract", "tags", "shareCopy", "coverPrompt"],
       },
@@ -355,16 +355,12 @@ ${mpFigure(visuals[1], plan.mechanism.title)}
 ${mpFigure(visuals[2], "前后对照")}
 ${plan.sections.slice(1).map((section) => renderSection(section, h2, paragraph)).join("")}
 ${mpBlock(`<p style="margin:0;color:#172033;font-size:21px;font-weight:700">写在最后</p><p style="${paragraph};margin-top:12px">${richText(plan.closing.summary)}</p><p style="margin:16px 0;color:#a24427;font-weight:700">${escapeHtml(plan.closing.question)}</p><p style="margin:16px 0 0;color:#172f5f;word-break:break-all">${escapeHtml(plan.repositoryUrl)}</p>`, "margin-top:48px;padding:26px;background-color:#fff3ed")}
-</article></div><aside class="assistant" data-no-copy><h2 style="margin:0 0 14px;color:#172033">发布助手</h2><p style="margin:0 0 12px;color:#8a5a2b;font-size:13px">标题和作者填公众号后台，不要贴进正文。路径、流程、对照已是图片，粘贴后请确认三张图都在。</p><strong>备选标题</strong><ol style="padding-left:20px;color:#555f6d">${titles}</ol><strong>摘要</strong><p style="color:#555f6d;line-height:1.65">${escapeHtml(plan.publish.abstract)}</p><strong>标签</strong><div style="margin:8px 0 16px">${tags}</div><strong>朋友圈文案</strong><p style="color:#555f6d;line-height:1.65">${escapeHtml(plan.publish.shareCopy)}</p><details><summary style="cursor:pointer;font-weight:700">封面提示词</summary><p style="color:#697080;line-height:1.6;white-space:pre-wrap">${escapeHtml(renderCoverPrompt(plan))}</p></details><details style="margin-top:12px"><summary style="cursor:pointer;font-weight:700">事实证据</summary><ul style="padding-left:18px;color:#555f6d">${evidence}</ul></details></aside></main>
+</article></div><aside class="assistant" data-no-copy><h2 style="margin:0 0 14px;color:#172033">发布助手</h2><p style="margin:0 0 12px;color:#8a5a2b;font-size:13px">标题和作者填公众号后台，不要贴进正文。路径、流程、对照已是图片，粘贴后请确认三张图都在。</p><strong>备选标题</strong><ol style="padding-left:20px;color:#555f6d">${titles}</ol><strong>摘要</strong><p style="color:#555f6d;line-height:1.65">${escapeHtml(plan.publish.abstract)}</p><strong>标签</strong><div style="margin:8px 0 16px">${tags}</div><strong>朋友圈文案</strong><p style="color:#555f6d;line-height:1.65">${escapeHtml(plan.publish.shareCopy)}</p><details><summary style="cursor:pointer;font-weight:700">封面提示词</summary><p style="color:#697080;line-height:1.6;white-space:pre-wrap">${escapeHtml(plan.publish.coverPrompt)}</p></details><details style="margin-top:12px"><summary style="cursor:pointer;font-weight:700">事实证据</summary><ul style="padding-left:18px;color:#555f6d">${evidence}</ul></details></aside></main>
 <script>${copyScript}</script></body></html>\n`;
 }
 
 function renderPublishCopy(plan: ArticlePlan): string {
-  return `# 发布文案\n\n## 标题\n\n${plan.title}\n\n## 作者\n\n虾哥不加班\n\n## 摘要（不超过 120 字）\n\n${plan.publish.abstract}\n\n## 封面提示词\n\n${renderCoverPrompt(plan)}\n`;
-}
-
-function renderCoverPrompt(plan: ArticlePlan): string {
-  return `微信公众号横版封面。主标题必须原样写出：「${plan.title}」。作者「虾哥不加班」，左下角小字项目名「${plan.projectName}」。标题放顶部安全区，字要大、能读清；不要改写标题，不要另起营销口号。摘要只用来理解主题，不要把整段摘要铺进画面：${plan.publish.abstract}\n\n画面：${plan.publish.coverPrompt}`;
+  return `# 发布文案\n\n## 标题\n\n${plan.title}\n\n## 作者\n\n虾哥不加班\n\n## 摘要（不超过 120 字）\n\n${plan.publish.abstract}\n\n## 封面提示词\n\n${plan.publish.coverPrompt}\n`;
 }
 
 function richText(value: string): string {
