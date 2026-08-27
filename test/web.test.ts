@@ -38,9 +38,18 @@ test("回放 API 能列出并读取 fixture", async () => {
     const articlePromptRes = await fetch(`http://127.0.0.1:${port}/api/prompts/wechat-article`);
     const articlePrompt = (await articlePromptRes.json()) as { text: string };
     expect(articlePromptRes.ok).toBe(true);
-    expect(articlePrompt.text).toContain("article.md");
     expect(articlePrompt.text).toContain("完读价值");
     expect(articlePrompt.text).toContain("不得编造平台权重");
+    expect(articlePrompt.text).toContain("这个项目如何从 0 走到现在");
+    expect(articlePrompt.text).toContain("不得编造履历");
+    expect(articlePrompt.text).toContain("职业生涯思考");
+    expect(articlePrompt.text).toContain("为什么要做这个开源项目");
+    expect(articlePrompt.text).toContain("tmp/config/resume-context.md");
+    expect(articlePrompt.text).toContain("不得输出电话、邮箱、期望薪资");
+    expect(articlePrompt.text).toContain("article.html");
+    expect(articlePrompt.text).toContain("文章正文不再生成 Markdown 副本");
+    expect(articlePrompt.text).toContain("一键复制");
+    expect(articlePrompt.text).toContain("ClipboardItem");
 
     const versionRes = await fetch(`http://127.0.0.1:${port}/api/dev/version`);
     const version = (await versionRes.json()) as { version: string };
