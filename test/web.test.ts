@@ -271,6 +271,45 @@ test("停止 API 取消活动 turn，并等待 Agent 回到 idle", async () => {
   }
 });
 
+test("运行中引导 API 在当前 turn 的下一 step 注入消息", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tiny-harness-web-inject-"));
+  const roots = { tmp: join(root, "tmp"), fixtures: join(root, "fixtures") };
+  let releaseFirst!: () => void;
+  let markFirstStarted!: () => void;
+  const firstStarted = new Promise<void>((resolve) => { markFirstStarted = resolve; });
+  let requestCount = 0;
+  const llmSettings = new LlmSettingsStore(join(roots.tmp, "config"), async () => {
+    requestCount += 1;
+    if (requestCount === 1) {
+      markFirstStarted();
+      await new Promise<void>((resolve) => { releaseFirst = resolve; });
+      const chunk = { choices: [{ delta: { tool_calls: [{ index: 0, id: "call-1", type: "function", function: { name: "echo", arguments: '{"text":"hello"}' } }] }, finish_reason: "tool_calls" }] };
+      return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
+    }
+    const chunk = { choices: [{ delta: { content: "完成" }, finish_reason: "stop" }] };
+    return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
+  });
+  await llmSettings.update({ provider: "openai-compatible", baseURL: "https://example.test/v1", model: "demo-model", apiKey: "test-key" });
+  const server = createWebServer({ roots, llmSettings });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+  try {
+    const session = await (await fetch(`http://127.0.0.1:${port}/api/sessions`, { method: "POST" })).json() as { file: string };
+    const base = `http://127.0.0.1:${port}/api/sessions/tmp/${session.file}`;
+    const turn = fetch(`${base}/turn`, { method: "POST", headers: { accept: "text/event-stream", "content-type": "application/json" }, body: JSON.stringify({ text: "开始" }) });
+    await firstStarted;
+    const injected = await fetch(`${base}/inject`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "运行中引导" }) });
+    expect(injected.status).toBe(202);
+    releaseFirst();
+    await (await turn).text();
+    const replay = await (await fetch(base)).json() as { events: Array<{ type: string; text?: string }> };
+    expect(replay.events.some((event) => event.type === "user" && event.text === "运行中引导")).toBe(true);
+    expect(requestCount).toBe(2);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test("两个会话可以同时跑 turn，同一会话重复发送仍 409", async () => {
   const root = await mkdtemp(join(tmpdir(), "tiny-harness-web-parallel-"));
   const roots = { tmp: join(root, "tmp"), fixtures: join(root, "fixtures") };

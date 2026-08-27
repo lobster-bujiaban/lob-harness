@@ -550,7 +550,7 @@ function updateComposer() {
     return;
   }
   if (busy) {
-    setComposerEnabled(false, "正在回复…");
+    setComposerEnabled(true, "运行中：发送的内容将在下一步用于引导 Agent。");
     return;
   }
   if (!modelSettings?.hasApiKey) {
@@ -1798,6 +1798,37 @@ async function sendTurn(text) {
   }
 }
 
+async function injectTurn(text) {
+  if (!current || current.source !== "tmp" || !isRunning(current)) return;
+  const target = { source: current.source, file: current.file };
+  draft.value = "";
+  draft.style.height = "auto";
+  updateComposer();
+  try {
+    const res = await fetch(
+      `/api/sessions/${encodeURIComponent(target.source)}/${encodeURIComponent(target.file)}/inject`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text }),
+      },
+    );
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? "引导发送失败");
+    if (isCurrentSession(target.source, target.file)) {
+      mainStatus.textContent = "引导已接收，将在下一步生效";
+      mainStatus.classList.remove("error");
+    }
+  } catch (err) {
+    if (isCurrentSession(target.source, target.file)) {
+      if (draft.value.length === 0) draft.value = text;
+      mainStatus.textContent = err instanceof Error ? err.message : "引导发送失败";
+      mainStatus.classList.add("error");
+      updateComposer();
+    }
+  }
+}
+
 async function stopTurn({ keepalive = false } = {}) {
   if (!current || current.source !== "tmp" || !isRunning(current)) return;
   stop.disabled = true;
@@ -1868,7 +1899,8 @@ composer.addEventListener("submit", (event) => {
   event.preventDefault();
   const text = draft.value.trim();
   if (text.length === 0 || send.disabled) return;
-  void sendTurn(text);
+  if (isRunning()) void injectTurn(text);
+  else void sendTurn(text);
 });
 attachButton.addEventListener("click", () => {
   if (managingSessions) return;

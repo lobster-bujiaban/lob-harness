@@ -391,6 +391,39 @@ export async function handleRequest(
     return;
   }
 
+  const injectMatch = /^\/api\/sessions\/([^/]+)\/([^/]+)\/inject$/.exec(url.pathname);
+  if (method === "POST" && injectMatch) {
+    const source = decodeURIComponent(injectMatch[1] ?? "");
+    const file = decodeURIComponent(injectMatch[2] ?? "");
+    if (source !== "tmp") {
+      sendJson(res, 403, { error: "fixtures are read-only" });
+      return;
+    }
+    try {
+      sessionFile(source, file, roots);
+      const body = await readJsonBody(req);
+      const text =
+        typeof body === "object" && body !== null && "text" in body
+          ? String((body as { text: unknown }).text).trim()
+          : "";
+      if (text.length === 0) {
+        sendJson(res, 400, { error: "text required" });
+        return;
+      }
+      const agent = context.agents.get(source, file);
+      if (agent === undefined || agent.status !== "running") {
+        sendJson(res, 409, { error: "session is not running" });
+        return;
+      }
+      await agent.inject(text);
+      sendJson(res, 202, { accepted: true, target: "next_step" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "inject failed";
+      sendJson(res, 400, { error: message });
+    }
+    return;
+  }
+
   const forkMatch = /^\/api\/sessions\/([^/]+)\/([^/]+)\/fork$/.exec(url.pathname);
   if (method === "POST" && forkMatch) {
     const source = decodeURIComponent(forkMatch[1] ?? "") as SessionSource;
