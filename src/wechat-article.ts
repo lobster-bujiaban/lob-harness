@@ -24,7 +24,7 @@ export function installWechatArticle(registry: ToolRegistry, options: { root: st
   const root = resolve(options.root);
   return registry.register({
     name: "wechat_create_article",
-    description: "把精简的结构化文章方案渲染成精致的单文件公众号 HTML。模板内置职业时间线、机制流程、前后对照、观点卡片、发布助手和富文本一键复制；模型不要自行编写 HTML/CSS/JS。",
+    description: "把精简的结构化文章方案渲染成精致的公众号 HTML，并生成只含标题、摘要和封面提示词的发布文案.md。模板内置职业时间线、机制流程、前后对照、观点卡片、发布助手和富文本一键复制；模型不要自行编写 HTML/CSS/JS。",
     parameters: {
       type: "object",
       properties: {
@@ -46,10 +46,15 @@ export function installWechatArticle(registry: ToolRegistry, options: { root: st
       const html = renderArticle(plan, logo);
       await mkdir(output, { recursive: true });
       const file = resolve(output, "article.html");
-      await writeFile(file, html, "utf8");
+      const publishFile = resolve(output, "发布文案.md");
+      await Promise.all([
+        writeFile(file, html, "utf8"),
+        writeFile(publishFile, renderPublishCopy(plan), "utf8"),
+      ]);
       return JSON.stringify({
         status: "created",
         html: file,
+        publishCopy: publishFile,
         bytes: Buffer.byteLength(html),
         journeyNodes: plan.journey.length,
         flowSteps: plan.mechanism.steps.length,
@@ -129,7 +134,7 @@ function parsePublish(value: unknown): ArticlePlan["publish"] {
   const raw = record(value, "publish");
   return {
     titles: strings(raw.titles, "publish.titles", 3, 5, 10, 70),
-    abstract: text(raw.abstract, "publish.abstract", 20, 160),
+    abstract: text(raw.abstract, "publish.abstract", 20, 120),
     tags: strings(raw.tags, "publish.tags", 2, 5, 2, 24),
     shareCopy: text(raw.shareCopy, "publish.shareCopy", 20, 240),
     coverPrompt: text(raw.coverPrompt, "publish.coverPrompt", 30, 500),
@@ -172,6 +177,10 @@ ${plan.sections.slice(1).length === 0 ? "" : plan.sections.slice(1).map((section
 <footer style="margin-top:48px;padding:26px;background:#fff3ed;border-radius:18px"><strong style="display:block;color:#172033;font-size:21px">写在最后</strong><p style="${paragraph};margin-top:12px">${richText(plan.closing.summary)}</p><p style="margin:16px 0;color:#a24427;font-weight:700">${escapeHtml(plan.closing.question)}</p><a href="${escapeHtml(plan.repositoryUrl)}" style="display:inline-block;margin-top:8px;color:#fff;background:#172f5f;padding:10px 16px;border-radius:10px;text-decoration:none">去 GitHub 看源码 →</a></footer>
 </article><aside class="assistant" data-no-copy><h2 style="margin:0 0 14px;color:#172033">发布助手</h2><strong>备选标题</strong><ol style="padding-left:20px;color:#555f6d">${titles}</ol><strong>摘要</strong><p style="color:#555f6d;line-height:1.65">${escapeHtml(plan.publish.abstract)}</p><strong>标签</strong><div style="margin:8px 0 16px">${tags}</div><strong>朋友圈文案</strong><p style="color:#555f6d;line-height:1.65">${escapeHtml(plan.publish.shareCopy)}</p><details><summary style="cursor:pointer;font-weight:700">封面提示词</summary><p style="color:#697080;line-height:1.6">${escapeHtml(plan.publish.coverPrompt)}</p></details><details style="margin-top:12px"><summary style="cursor:pointer;font-weight:700">事实证据</summary><ul style="padding-left:18px;color:#555f6d">${evidence}</ul></details></aside></main>
 <script>const b=document.getElementById('copy'),a=document.getElementById('article');function done(t){const o=b.textContent;b.textContent=t;setTimeout(()=>b.textContent=o,1800)}function fallback(){const s=getSelection(),r=document.createRange();r.selectNodeContents(a);s.removeAllRanges();s.addRange(r);const ok=document.execCommand('copy');s.removeAllRanges();return ok}b.onclick=async()=>{try{if(navigator.clipboard&&window.ClipboardItem){await navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([a.outerHTML],{type:'text/html'}),'text/plain':new Blob([a.innerText],{type:'text/plain'})})]);done('已复制')}else done(fallback()?'已复制':'请手动复制')}catch{done(fallback()?'已复制':'复制失败')}}</script></body></html>\n`;
+}
+
+function renderPublishCopy(plan: ArticlePlan): string {
+  return `# 发布文案\n\n## 标题\n\n${plan.title}\n\n## 摘要（不超过 120 字）\n\n${plan.publish.abstract}\n\n## 封面提示词\n\n${plan.publish.coverPrompt}\n`;
 }
 
 function richText(value: string): string {

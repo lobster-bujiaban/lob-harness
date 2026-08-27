@@ -107,7 +107,7 @@ export const BUILTIN_PLUGINS: readonly PluginManifest[] = Object.freeze([
   {
     id: "wechat-article",
     name: "WeChat Article",
-    description: "把结构化文章方案渲染成带图解、发布助手和一键复制的公众号 HTML。",
+    description: "把结构化文章方案渲染成带图解、发布助手和一键复制的公众号 HTML，并生成精简发布文案。",
     tools: ["wechat_create_article"],
     configurable: false,
     defaultEnabled: true,

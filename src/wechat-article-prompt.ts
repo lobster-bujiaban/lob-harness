@@ -1,6 +1,6 @@
 export const WECHAT_ARTICLE_PROMPT = `请为当前开源项目生成一篇适合微信公众号发布的文章。主线是“这个项目如何从 0 走到现在”：为什么要做这个开源项目、真实职业经历如何影响架构判断、这段经历带来什么职业生涯思考、它对普通开发者有什么用，以及还有哪些没有解决。
 
-最终只交付 wechat/article.html。必须调用 wechat_create_article 生成，不要自行编写 HTML、CSS 或 JavaScript，不生成 Markdown 正文、publish-kit.md、evidence.md。
+最终交付 wechat/article.html 和 wechat/发布文案.md。必须调用 wechat_create_article 生成，不要自行编写 HTML、CSS 或 JavaScript。发布文案.md 只保留最终标题、120 字以内摘要和封面提示词。
 
 ## 轻量采集：严格控制 Token
 
@@ -39,5 +39,5 @@ export const WECHAT_ARTICLE_PROMPT = `请为当前开源项目生成一篇适合
 1. 先在内心确定一句文章核心：作者为什么非做这个项目不可。所有段落和视觉都服务这句话。
 2. 一次性组织 wechat_create_article 的 plan。opening 2～3 段；journey 3～5 节点；mechanism 3～6 步；comparison 前后各 2～4 点；sections 2～4 节；evidence 3～6 条。标题候选、摘要、标签、朋友圈文案和封面提示词放入 publish，由页面右侧发布助手展示。
 3. 调用 wechat_create_article，outputDir 固定为 wechat。参数校验失败时只针对错误修订一次，不要重新扫描项目。
-4. 最终只报告 article.html 的真实路径、文件大小、正文约字数、核心故事线和视觉模块数量，不输出大段复核报告。
+4. 最终只报告 article.html、发布文案.md 的真实路径、文件大小、正文约字数、核心故事线和视觉模块数量，不输出大段复核报告。
 `;
