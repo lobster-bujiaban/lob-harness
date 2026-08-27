@@ -103,6 +103,7 @@ Web 还提供插件启停、配置保存和教学版热重载。热重载会先�
 | 后台任务 | `job`、`job_output`、`job_kill` |
 | 会话目标 | `get_goal`、`create_goal`、`complete_goal` |
 | 视频 | `video_analyze_source`、`video_create_hyperframes`、`video_generate_voice`、`video_render_hyperframes` |
+| 公众号 | `wechat_create_article` |
 | MCP（启用插件后） | `mcp__demo__ping` |
 
 所有工具统一经过 `preExecute → execute → postExecute`。拒绝、未知工具、执行异常和后置阻断都会写成结构化 `tool_result`，供模型看到，不会直接伪造整个 turn 成功。
@@ -140,18 +141,11 @@ Web 输入框左下角「+」菜单提供「生成宣传视频」和「生成公
 
 1. 可选：把作者原始简历放在 `tmp/config/作者简历.pdf`，并准备脱敏后的 `tmp/config/resume-context.md`。本项目本地环境已内置这两份文件；`tmp/` 已被 Git 忽略，不会提交简历。脱敏上下文不得包含电话、邮箱、薪资等不应公开的信息。
 2. 选择需要介绍的源码工作区，点击输入框左下角「+」→「生成公众号文章」。
-3. Agent 会结合脱敏职业背景、Git 提交历史、README、源码和测试，讲清项目为什么从 0 开始、为什么选择开源、关键演进与架构取舍、项目作用及职业思考。无法从资料证实的个人经历会进入“作者确认问题”，不会直接编造。
-4. 完成后打开 `wechat/article.html` 查看排版结果。页面右上角的「一键复制」会复制正文富文本，可直接粘贴到微信公众号编辑器；按钮和辅助说明不会被复制。
+3. Agent 先用一次有界源码分析、脱敏职业背景和精简 Git 历史确定核心故事，只在缺少关键证据时额外读取最多两个源码文件。随后生成约 1800～2600 字的结构化文章方案，不做全仓逐文件审计。
+4. 专用的 `wechat_create_article` 工具把结构化方案渲染为 `wechat/article.html`。模型不再手写大段 HTML/CSS/JS，因此消耗更低，页面风格也保持稳定。
+5. 完成后打开 `wechat/article.html`：正文包含职业与项目时间线、核心机制流程、前后对照和关键取舍卡；桌面端右侧「发布助手」提供标题候选、摘要、标签、朋友圈文案、封面提示词和折叠证据。右上角「一键复制正文」只复制带内联样式的文章富文本，可直接粘贴到微信公众号编辑器。
 
-公众号交付文件：
-
-| 文件 | 用途 |
-|---|---|
-| `wechat/article.html` | 最终文章与公众号排版，包含富文本一键复制 |
-| `wechat/publish-kit.md` | 标题候选、摘要、标签、朋友圈文案和封面提示词 |
-| `wechat/evidence.md` | 源码路径、行号、提交节点与论断证据 |
-
-正文不额外生成 Markdown 副本。发布前仍应人工确认个人经历、项目数据、GitHub 地址、封面和事实证据。重复生成会写入同一个 `wechat/` 目录，需要保留旧版本时应先备份或改名。
+公众号只交付一个文件：`wechat/article.html`。不再生成正文 Markdown、`publish-kit.md` 或 `evidence.md`；发布信息与证据统一放在 HTML 的发布助手中。发布前仍应人工确认个人经历、项目数据、GitHub 地址、封面和事实证据。重复生成会覆盖同一路径，需要保留旧版本时应先备份或改名。
 
 内置提示词可通过 `GET /api/prompts/wechat-article` 查看。
 

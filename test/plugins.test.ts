@@ -17,6 +17,7 @@ test("插件发现、启停、配置和持久化共同决定工具注册表", as
     ["tool-jobs", "active"],
     ["tool-goal", "active"],
     ["hyperframes-video", "active"],
+    ["wechat-article", "active"],
   ]);
   expect((await store.createToolRegistry(directory)).schemas().map((tool) => tool.name)).toEqual([
     "echo",
@@ -30,6 +31,7 @@ test("插件发现、启停、配置和持久化共同决定工具注册表", as
     "video_create_hyperframes",
     "video_generate_voice",
     "video_render_hyperframes",
+    "wechat_create_article",
   ]);
 
   await store.update("workspace-files", {
@@ -49,6 +51,7 @@ test("插件发现、启停、配置和持久化共同决定工具注册表", as
     "video_create_hyperframes",
     "video_generate_voice",
     "video_render_hyperframes",
+    "wechat_create_article",
   ]);
   expect(JSON.parse(await readFile(join(directory, "plugins.json"), "utf8"))).toMatchObject({
     version: 1,
@@ -86,7 +89,7 @@ test("插件可重复 reload，旧贡献先撤销且新注册不重复", async (
   });
   await expect(store.reload("workspace-files")).resolves.toMatchObject({ phase: "active" });
 
-  expect(store.context.tools.entries()).toEqual(["core-tools", "workspace-shell", "subagent", "tool-jobs", "tool-goal", "hyperframes-video", "workspace-files"]);
+  expect(store.context.tools.entries()).toEqual(["core-tools", "workspace-shell", "subagent", "tool-jobs", "tool-goal", "hyperframes-video", "wechat-article", "workspace-files"]);
   expect(before.schemas().map((tool) => tool.name)).toEqual([
     "echo",
     "read_file",
@@ -99,6 +102,7 @@ test("插件可重复 reload，旧贡献先撤销且新注册不重复", async (
     "video_create_hyperframes",
     "video_generate_voice",
     "video_render_hyperframes",
+    "wechat_create_article",
   ]);
   expect((await store.createToolRegistry(directory)).schemas().map((tool) => tool.name)).toEqual([
     "echo",
@@ -107,6 +111,7 @@ test("插件可重复 reload，旧贡献先撤销且新注册不重复", async (
     "video_create_hyperframes",
     "video_generate_voice",
     "video_render_hyperframes",
+    "wechat_create_article",
     "read_file",
     "list_files",
     "write_file",

@@ -17,6 +17,7 @@ import { SubprocessService, LocalSubprocessProvider } from "./subprocess-service
 import { SandboxService, LocalSandboxProvider } from "./sandbox-service.ts";
 import { SandboxPolicyService } from "./sandbox-policy.ts";
 import { installHyperframesVideo } from "./hyperframes-video.ts";
+import { installWechatArticle } from "./wechat-article.ts";
 
 export type PluginManifest = {
   id: string;
@@ -101,6 +102,14 @@ export const BUILTIN_PLUGINS: readonly PluginManifest[] = Object.freeze([
     description: "把源码摘要和结构化分镜转换为抖音竖版 Hyperframes 工程并渲染 MP4。",
     tools: ["video_analyze_source", "video_create_hyperframes", "video_generate_voice", "video_render_hyperframes"],
     configurable: true,
+    defaultEnabled: true,
+  },
+  {
+    id: "wechat-article",
+    name: "WeChat Article",
+    description: "把结构化文章方案渲染成带图解、发布助手和一键复制的公众号 HTML。",
+    tools: ["wechat_create_article"],
+    configurable: false,
     defaultEnabled: true,
   },
 ]);
@@ -256,6 +265,10 @@ export class PluginStore {
         logoPath: config.logoPath as string,
         credentialsPath: join(this.directory, "credentials.json"),
       })), { inject: ["tools", "shell"] });
+    this.context.loader.builtins["wechat-article"] = Object.assign((ctx: Context) =>
+      ctx.tools.register("wechat-article", (registry, workspaceRoot) => installWechatArticle(registry, {
+        root: workspaceRoot,
+      })), { inject: ["tools"] });
     const saved = await this.read();
     for (const manifest of BUILTIN_PLUGINS) {
       const entry = saved.plugins[manifest.id];
