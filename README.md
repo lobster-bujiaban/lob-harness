@@ -202,3 +202,7 @@ Web / SSE
 如果你正在研究 Agent 工程、准备基于 LOB Harness 做扩展，或希望交流实际项目，可以扫码添加作者微信。添加时请备注 `LOB Harness`。
 
 <img src="assets/wechat-qr.png" alt="虾哥微信二维码" width="280">
+
+## 许可证
+
+本项目基于 [Apache License 2.0](LICENSE) 开源。

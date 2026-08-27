@@ -2,6 +2,7 @@
   "name": "lob-harness",
   "version": "0.0.0",
   "description": "LOB 开源的 Agent Harness：把会话、工具、沙箱与多 Agent 做成可运行的完整工程。",
+  "license": "Apache-2.0",
   "private": true,
   "type": "module",
   "engines": {
