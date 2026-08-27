@@ -66,7 +66,18 @@ test("结构化方案渲染成带图解、发布助手和一键复制的单文�
   expect(html).toContain("发布助手");
   expect(html).toContain("ClipboardItem");
   expect(html).toContain("text/html");
+  expect(html).toContain("a.innerHTML");
+  expect(html).toContain("https://github.com/lobster-bujiaban/lob-harness");
+  expect(html).not.toContain("去 GitHub 看源码");
+  const article = html.match(/<article id="article">([\s\S]*?)<\/article>/)?.[1] ?? "";
+  expect(article).toContain("<table");
+  expect(article).not.toContain("<h1");
+  expect(article).not.toContain("display:flex");
+  expect(article).not.toContain("display:grid");
+  expect(article).not.toContain("我为什么重新写了一遍 Agent 的运行骨架");
   expect(publishCopy).toContain("## 标题");
+  expect(publishCopy).toContain("## 作者");
+  expect(publishCopy).toContain("虾哥不加班");
   expect(publishCopy).toContain("## 摘要（不超过 120 字）");
   expect(publishCopy).toContain("## 封面提示词");
   expect(publishCopy).not.toContain("朋友圈文案");

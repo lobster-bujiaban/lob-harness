@@ -152,35 +152,79 @@ function parseEvidence(value: unknown): ArticlePlan["evidence"] {
   });
 }
 
+function mpTable(rows: string, extra = ""): string {
+  return `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;${extra}">${rows}</table>`;
+}
+
+function renderJourney(items: Item[]): string {
+  const rows = items.map((item, index) => {
+    const last = index === items.length - 1;
+    const pad = last ? "0" : "0 0 18px";
+    const bg = last ? "#f15b36" : "#172f5f";
+    return `<tr><td style="width:40px;vertical-align:top;padding:${pad}"><p style="margin:0;width:28px;height:28px;line-height:28px;text-align:center;background:${bg};color:#ffffff;font-size:14px;font-weight:700">${index + 1}</p></td><td style="vertical-align:top;padding:${pad}"><p style="margin:0;color:#172033;font-size:17px;font-weight:700;line-height:1.5">${escapeHtml(item.title)}</p><p style="margin:6px 0 0;color:#5f6673;font-size:15px;line-height:1.7">${escapeHtml(item.text)}</p></td></tr>`;
+  }).join("");
+  return mpTable(`<tr><td style="padding:18px;background:#f5f7fa">${mpTable(rows)}</td></tr>`);
+}
+
+function renderFlow(steps: Item[]): string {
+  const rows = steps.flatMap((step, index) => {
+    const card = `<tr><td style="padding:8px 0">${mpTable(`<tr><td style="padding:14px 16px;background:#ffffff;border:1px solid #d7dce5"><p style="margin:0;color:#172033;font-size:16px;font-weight:700;text-align:center">${escapeHtml(step.title)}</p><p style="margin:6px 0 0;color:#707784;font-size:13px;line-height:1.6;text-align:center">${escapeHtml(step.text)}</p></td></tr>`)}</td></tr>`;
+    const arrow = index === steps.length - 1 ? "" : `<tr><td style="padding:2px 0;color:#f15b36;font-size:18px;font-weight:700;text-align:center">↓</td></tr>`;
+    return [card, arrow];
+  }).join("");
+  return mpTable(`<tr><td style="padding:14px;background:#f5f7fa">${mpTable(rows)}</td></tr>`);
+}
+
+function renderCompare(plan: ArticlePlan["comparison"]): string {
+  const column = (title: string, values: string[], accent: string) => {
+    const lines = values.map((value) => `<p style="margin:8px 0;color:#444b57"><span style="color:${accent};font-weight:800">✓ </span>${escapeHtml(value)}</p>`).join("");
+    return `<td style="width:50%;vertical-align:top;padding:16px;background:#ffffff;border:1px solid #e2e4e9"><p style="margin:0 0 12px;color:${accent};font-size:18px;font-weight:700">${escapeHtml(title)}</p>${lines}</td>`;
+  };
+  return mpTable(`<tr>${column(plan.beforeTitle, plan.before, "#89909b")}<td style="width:12px;font-size:1px">&nbsp;</td>${column(plan.afterTitle, plan.after, "#f15b36")}</tr>`);
+}
+
+function renderTakeaway(text: string): string {
+  return mpTable(`<tr><td style="width:6px;background:#f15b36;font-size:1px">&nbsp;</td><td style="padding:16px 18px;background:#fff3ed;color:#7b331f;font-weight:650;line-height:1.7">${escapeHtml(text)}</td></tr>`, "margin:22px 0");
+}
+
+function renderSection(section: ArticlePlan["sections"][number], h2: string, paragraph: string): string {
+  const body = section.paragraphs.map((value) => `<p style="${paragraph}">${richText(value)}</p>`).join("");
+  const takeaway = section.takeaway === undefined ? "" : renderTakeaway(section.takeaway);
+  return `<h2 style="${h2}">${escapeHtml(section.title)}</h2>${body}${takeaway}`;
+}
+
 function renderArticle(plan: ArticlePlan, logo?: string): string {
   const paper = "max-width:720px;margin:0 auto;background:#fffdf8;color:#222;padding:38px 34px 64px;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;font-size:17px;line-height:1.9";
   const h2 = "margin:46px 0 18px;font-size:24px;line-height:1.4;color:#172033";
   const paragraph = "margin:0 0 18px;color:#30343b;letter-spacing:.02em";
   const logoHtml = logo === undefined ? "" : `<img src="${logo}" alt="${escapeHtml(plan.projectName)} Logo" style="width:58px;height:58px;object-fit:contain;border-radius:16px;background:#fff"/>`;
-  const journey = plan.journey.map((item, index) => `<div style="display:grid;grid-template-columns:36px 1fr;gap:14px;position:relative;padding-bottom:${index === plan.journey.length - 1 ? 0 : 22}px"><div style="width:30px;height:30px;border-radius:50%;background:${index === plan.journey.length - 1 ? "#f15b36" : "#172f5f"};color:#fff;display:grid;place-items:center;font-weight:700">${index + 1}</div><div><strong style="display:block;font-size:17px;color:#172033">${escapeHtml(item.title)}</strong><span style="display:block;margin-top:3px;color:#5f6673;line-height:1.7">${escapeHtml(item.text)}</span></div></div>`).join("");
-  const flow = plan.mechanism.steps.map((step, index) => `<div style="display:flex;align-items:center;gap:10px;flex:1;min-width:110px"><div style="flex:1;background:#fff;border:1px solid #d7dce5;border-radius:12px;padding:14px 12px;text-align:center"><strong style="display:block;color:#172033">${escapeHtml(step.title)}</strong><span style="display:block;margin-top:5px;font-size:13px;line-height:1.5;color:#707784">${escapeHtml(step.text)}</span></div>${index === plan.mechanism.steps.length - 1 ? "" : "<span style=\"color:#f15b36;font-size:22px;font-weight:700\">→</span>"}</div>`).join("");
-  const compareColumn = (title: string, values: string[], accent: string) => `<div style="flex:1;min-width:220px;border-radius:16px;padding:20px;background:#fff;border:1px solid #e2e4e9"><strong style="display:block;margin-bottom:12px;color:${accent};font-size:18px">${escapeHtml(title)}</strong>${values.map((value) => `<div style="display:flex;gap:9px;margin:9px 0;color:#444b57"><span style="color:${accent};font-weight:800">✓</span><span>${escapeHtml(value)}</span></div>`).join("")}</div>`;
   const evidence = plan.evidence.map((item) => `<li style="margin:9px 0"><strong>${escapeHtml(item.claim)}</strong><br/><code style="font-size:12px;color:#697080">${escapeHtml(item.source)}</code></li>`).join("");
   const titles = plan.publish.titles.map((title) => `<li style="margin:8px 0">${escapeHtml(title)}</li>`).join("");
   const tags = plan.publish.tags.map((tag) => `<span style="display:inline-block;margin:3px;padding:5px 9px;border-radius:999px;background:#eef2f8;color:#294878">${escapeHtml(tag)}</span>`).join("");
+  const copyScript = "const b=document.getElementById('copy'),a=document.getElementById('article');function done(t){const o=b.textContent;b.textContent=t;setTimeout(()=>b.textContent=o,1800)}function payload(){return '<section style=\"font-size:17px;line-height:1.9;color:#222;font-family:-apple-system,BlinkMacSystemFont,PingFang SC,Microsoft YaHei,sans-serif\">'+a.innerHTML+'</section>'}function fallback(){const s=getSelection(),r=document.createRange();r.selectNodeContents(a);s.removeAllRanges();s.addRange(r);const ok=document.execCommand('copy');s.removeAllRanges();return ok}b.onclick=async()=>{try{if(navigator.clipboard&&window.ClipboardItem){await navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([payload()],{type:'text/html'}),'text/plain':new Blob([a.innerText],{type:'text/plain'})})]);done('已复制')}else done(fallback()?'已复制':'请手动复制')}catch{done(fallback()?'已复制':'复制失败')}}";
   return `<!doctype html>
-<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(plan.title)}</title><style>*{box-sizing:border-box}body{margin:0;background:#e9edf3;color:#222}.shell{display:grid;grid-template-columns:minmax(0,780px) 320px;gap:24px;max-width:1160px;margin:28px auto;padding:0 18px}.assistant{position:sticky;top:72px;align-self:start;max-height:calc(100vh - 92px);overflow:auto;background:#fff;border-radius:18px;padding:20px;box-shadow:0 12px 35px #1d2b4817}.copy{position:fixed;right:24px;top:18px;z-index:10;border:0;border-radius:999px;padding:11px 18px;background:#f15b36;color:#fff;font-weight:700;box-shadow:0 8px 22px #f15b3645;cursor:pointer}@media(max-width:980px){.shell{display:block;max-width:760px}.assistant{position:static;margin-top:18px;max-height:none}.copy{right:14px;top:12px}}@media(max-width:560px){.shell{padding:0;margin:0}.paper{padding:28px 19px!important}.flow{display:block!important}.flow>div{margin-bottom:10px}.compare{display:block!important}.compare>div{margin-bottom:12px}}</style></head>
-<body><button id="copy" class="copy" type="button">一键复制正文</button><main class="shell"><article id="article" class="paper" style="${paper}">
-<header style="margin-bottom:34px"><div style="display:flex;align-items:center;gap:14px;margin-bottom:24px">${logoHtml}<div><span style="display:block;color:#f15b36;font-size:13px;font-weight:800;letter-spacing:.12em">开源手记 · ${escapeHtml(plan.projectName)}</span><span style="display:block;color:#8a8f99;font-size:13px">虾哥不加班</span></div></div><h1 style="margin:0;color:#121b2d;font-size:36px;line-height:1.28;letter-spacing:-.02em">${escapeHtml(plan.title)}</h1><p style="margin:18px 0 0;padding:16px 18px;background:#f1f4f8;border-radius:14px;color:#596170;font-size:16px;line-height:1.75">${escapeHtml(plan.subtitle)}</p></header>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(plan.title)}</title><style>*{box-sizing:border-box}body{margin:0;background:#e9edf3;color:#222}.shell{display:grid;grid-template-columns:minmax(0,780px) 320px;gap:24px;max-width:1160px;margin:28px auto;padding:0 18px}.assistant{position:sticky;top:72px;align-self:start;max-height:calc(100vh - 92px);overflow:auto;background:#fff;border-radius:18px;padding:20px;box-shadow:0 12px 35px #1d2b4817}.copy{position:fixed;right:24px;top:18px;z-index:10;border:0;border-radius:999px;padding:11px 18px;background:#f15b36;color:#fff;font-weight:700;box-shadow:0 8px 22px #f15b3645;cursor:pointer}@media(max-width:980px){.shell{display:block;max-width:760px}.assistant{position:static;margin-top:18px;max-height:none}.copy{right:14px;top:12px}}@media(max-width:560px){.shell{padding:0;margin:0}.paper{padding:28px 19px!important}}</style></head>
+<body><button id="copy" class="copy" type="button">一键复制正文</button><main class="shell"><div class="paper" style="${paper}">
+<header style="margin-bottom:28px">${mpTable(`<tr>${logo === undefined ? "" : `<td style="width:70px;vertical-align:middle;padding:0 14px 0 0">${logoHtml}</td>`}<td style="vertical-align:middle"><p style="margin:0;color:#f15b36;font-size:13px;font-weight:800;letter-spacing:.12em">开源手记 · ${escapeHtml(plan.projectName)}</p><p style="margin:4px 0 0;color:#8a8f99;font-size:13px">虾哥不加班</p></td></tr>`)}<h1 style="margin:18px 0 0;color:#121b2d;font-size:36px;line-height:1.28;letter-spacing:-.02em">${escapeHtml(plan.title)}</h1></header>
+<article id="article">
+${mpTable(`<tr><td style="padding:16px 18px;background:#f1f4f8;color:#596170;font-size:16px;line-height:1.75">${escapeHtml(plan.subtitle)}</td></tr>`)}
 ${plan.opening.map((value) => `<p style="${paragraph}">${richText(value)}</p>`).join("")}
-<section><h2 style="${h2}">这条路，不是从 Agent 开始的</h2><div style="position:relative;margin:22px 0;padding:24px;background:#f5f7fa;border-radius:18px">${journey}</div></section>
-${plan.sections.slice(0, 1).map((section) => `<section><h2 style="${h2}">${escapeHtml(section.title)}</h2>${section.paragraphs.map((value) => `<p style="${paragraph}">${richText(value)}</p>`).join("")}${section.takeaway === undefined ? "" : `<div style="margin:22px 0;padding:16px 18px;border-left:5px solid #f15b36;background:#fff3ed;border-radius:0 12px 12px 0;color:#7b331f;font-weight:650">${escapeHtml(section.takeaway)}</div>`}</section>`).join("")}
-<blockquote style="margin:30px 0;padding:24px 26px;background:#172f5f;color:#fff;border-radius:18px;font-size:22px;line-height:1.6;font-weight:700">${escapeHtml(plan.quote)}</blockquote>
-<section><h2 style="${h2}">${escapeHtml(plan.mechanism.title)}</h2><div class="flow" style="display:flex;align-items:stretch;gap:10px;margin:22px 0;padding:18px;background:#f5f7fa;border-radius:18px">${flow}</div></section>
-<section><h2 style="${h2}">我真正想改变的，不是模型</h2><div class="compare" style="display:flex;gap:14px;margin:22px 0">${compareColumn(plan.comparison.beforeTitle, plan.comparison.before, "#89909b")}${compareColumn(plan.comparison.afterTitle, plan.comparison.after, "#f15b36")}</div></section>
-${plan.sections.slice(1).length === 0 ? "" : plan.sections.slice(1).map((section) => `<section><h2 style="${h2}">${escapeHtml(section.title)}</h2>${section.paragraphs.map((value) => `<p style="${paragraph}">${richText(value)}</p>`).join("")}${section.takeaway === undefined ? "" : `<div style="margin:22px 0;padding:16px 18px;border-left:5px solid #f15b36;background:#fff3ed;border-radius:0 12px 12px 0;color:#7b331f;font-weight:650">${escapeHtml(section.takeaway)}</div>`}</section>`).join("")}
-<footer style="margin-top:48px;padding:26px;background:#fff3ed;border-radius:18px"><strong style="display:block;color:#172033;font-size:21px">写在最后</strong><p style="${paragraph};margin-top:12px">${richText(plan.closing.summary)}</p><p style="margin:16px 0;color:#a24427;font-weight:700">${escapeHtml(plan.closing.question)}</p><a href="${escapeHtml(plan.repositoryUrl)}" style="display:inline-block;margin-top:8px;color:#fff;background:#172f5f;padding:10px 16px;border-radius:10px;text-decoration:none">去 GitHub 看源码 →</a></footer>
-</article><aside class="assistant" data-no-copy><h2 style="margin:0 0 14px;color:#172033">发布助手</h2><strong>备选标题</strong><ol style="padding-left:20px;color:#555f6d">${titles}</ol><strong>摘要</strong><p style="color:#555f6d;line-height:1.65">${escapeHtml(plan.publish.abstract)}</p><strong>标签</strong><div style="margin:8px 0 16px">${tags}</div><strong>朋友圈文案</strong><p style="color:#555f6d;line-height:1.65">${escapeHtml(plan.publish.shareCopy)}</p><details><summary style="cursor:pointer;font-weight:700">封面提示词</summary><p style="color:#697080;line-height:1.6">${escapeHtml(plan.publish.coverPrompt)}</p></details><details style="margin-top:12px"><summary style="cursor:pointer;font-weight:700">事实证据</summary><ul style="padding-left:18px;color:#555f6d">${evidence}</ul></details></aside></main>
-<script>const b=document.getElementById('copy'),a=document.getElementById('article');function done(t){const o=b.textContent;b.textContent=t;setTimeout(()=>b.textContent=o,1800)}function fallback(){const s=getSelection(),r=document.createRange();r.selectNodeContents(a);s.removeAllRanges();s.addRange(r);const ok=document.execCommand('copy');s.removeAllRanges();return ok}b.onclick=async()=>{try{if(navigator.clipboard&&window.ClipboardItem){await navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([a.outerHTML],{type:'text/html'}),'text/plain':new Blob([a.innerText],{type:'text/plain'})})]);done('已复制')}else done(fallback()?'已复制':'请手动复制')}catch{done(fallback()?'已复制':'复制失败')}}</script></body></html>\n`;
+<h2 style="${h2}">这条路，不是从 Agent 开始的</h2>
+${renderJourney(plan.journey)}
+${plan.sections.slice(0, 1).map((section) => renderSection(section, h2, paragraph)).join("")}
+${mpTable(`<tr><td style="padding:24px 26px;background:#172f5f;color:#ffffff;font-size:20px;font-weight:700;line-height:1.6">${escapeHtml(plan.quote)}</td></tr>`, "margin:30px 0")}
+<h2 style="${h2}">${escapeHtml(plan.mechanism.title)}</h2>
+${renderFlow(plan.mechanism.steps)}
+<h2 style="${h2}">我真正想改变的，不是模型</h2>
+${renderCompare(plan.comparison)}
+${plan.sections.slice(1).map((section) => renderSection(section, h2, paragraph)).join("")}
+${mpTable(`<tr><td style="padding:26px;background:#fff3ed"><p style="margin:0;color:#172033;font-size:21px;font-weight:700">写在最后</p><p style="${paragraph};margin-top:12px">${richText(plan.closing.summary)}</p><p style="margin:16px 0;color:#a24427;font-weight:700">${escapeHtml(plan.closing.question)}</p><p style="margin:16px 0 0;color:#172f5f;word-break:break-all">${escapeHtml(plan.repositoryUrl)}</p></td></tr>`, "margin-top:48px")}
+</article></div><aside class="assistant" data-no-copy><h2 style="margin:0 0 14px;color:#172033">发布助手</h2><p style="margin:0 0 12px;color:#8a5a2b;font-size:13px">标题和作者填公众号后台，不要贴进正文。</p><strong>备选标题</strong><ol style="padding-left:20px;color:#555f6d">${titles}</ol><strong>摘要</strong><p style="color:#555f6d;line-height:1.65">${escapeHtml(plan.publish.abstract)}</p><strong>标签</strong><div style="margin:8px 0 16px">${tags}</div><strong>朋友圈文案</strong><p style="color:#555f6d;line-height:1.65">${escapeHtml(plan.publish.shareCopy)}</p><details><summary style="cursor:pointer;font-weight:700">封面提示词</summary><p style="color:#697080;line-height:1.6">${escapeHtml(plan.publish.coverPrompt)}</p></details><details style="margin-top:12px"><summary style="cursor:pointer;font-weight:700">事实证据</summary><ul style="padding-left:18px;color:#555f6d">${evidence}</ul></details></aside></main>
+<script>${copyScript}</script></body></html>\n`;
 }
 
 function renderPublishCopy(plan: ArticlePlan): string {
-  return `# 发布文案\n\n## 标题\n\n${plan.title}\n\n## 摘要（不超过 120 字）\n\n${plan.publish.abstract}\n\n## 封面提示词\n\n${plan.publish.coverPrompt}\n`;
+  return `# 发布文案\n\n## 标题\n\n${plan.title}\n\n## 作者\n\n虾哥不加班\n\n## 摘要（不超过 120 字）\n\n${plan.publish.abstract}\n\n## 封面提示词\n\n${plan.publish.coverPrompt}\n`;
 }
 
 function richText(value: string): string {
