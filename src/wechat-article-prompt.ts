@@ -32,12 +32,12 @@ export const WECHAT_ARTICLE_PROMPT = `请为当前开源项目生成一篇适合
 3. comparison：前后对照，例如“只保存聊天记录 / 保存事件流水账”。
 4. sections.takeaway：关键取舍卡片，用一句人话总结代价或判断。
 
-页面由工具统一生成：项目 Logo、纸面编辑感、深蓝与橙红品牌色、窄栏正文、发布助手、证据折叠区、移动端适配，以及右上角富文本“一键复制正文”。复制内容只包含文章，不包含发布助手。
+页面由工具统一生成：项目 Logo、纸面编辑感、深蓝与橙红品牌色、窄栏正文、发布助手、证据折叠区、移动端适配，以及右上角富文本“一键复制正文”。journey、mechanism.steps、comparison 会渲成 PNG 图，复制后公众号按图片保留圆角、编号和流程箭头。复制内容只包含文章，不包含发布助手。
 
 ## 调用与完成
 
 1. 先在内心确定一句文章核心：作者为什么非做这个项目不可。所有段落和视觉都服务这句话。
-2. 一次性组织 wechat_create_article 的 plan。opening 2～3 段；journey 3～5 节点；mechanism 3～6 步；comparison 前后各 2～4 点；sections 2～4 节；evidence 3～6 条。标题候选、摘要、标签、朋友圈文案和封面提示词放入 publish，由页面右侧发布助手展示。
-3. 调用 wechat_create_article，outputDir 固定为 wechat。参数校验失败时只针对错误修订一次，不要重新扫描项目。
+2. 一次性组织 wechat_create_article 的 plan。opening 2～3 段；journey 3～5 节点；mechanism 3～6 步且必须有 title；comparison 必须有 beforeTitle / afterTitle；sections 2～4 节，标题字段是 title 不是 heading；closing 必须是对象 { summary, question }，不要用字符串数组；evidence 用 source 不是 file。publish 字段名是 titles（3～5 条）、abstract（20～120 字）、shareCopy、tags、coverPrompt，不要用 titleCandidates / summary / moments。
+3. 调用 wechat_create_article，outputDir 固定为 wechat。参数校验失败时会一次列出全部问题，只按清单修订一次再调用，不要 grep 源码，不要重新扫描项目。
 4. 最终只报告 article.html、发布文案.md 的真实路径、文件大小、正文约字数、核心故事线和视觉模块数量，不输出大段复核报告。
 `;

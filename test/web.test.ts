@@ -52,6 +52,7 @@ test("回放 API 能列出并读取 fixture", async () => {
     expect(articlePrompt.text).toContain("wechat_create_article");
     expect(articlePrompt.text).toContain("工具调用目标不超过 12 次");
     expect(articlePrompt.text).toContain("wechat/发布文案.md");
+    expect(articlePrompt.text).toContain("不要用 titleCandidates");
 
     const versionRes = await fetch(`http://127.0.0.1:${port}/api/dev/version`);
     const version = (await versionRes.json()) as { version: string };
