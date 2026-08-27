@@ -45,6 +45,7 @@ test("回放 API 能列出并读取 fixture", async () => {
     expect(articlePrompt.text).toContain("职业生涯思考");
     expect(articlePrompt.text).toContain("为什么要做这个开源项目");
     expect(articlePrompt.text).toContain("tmp/config/resume-context.md");
+    expect(articlePrompt.text).toContain("tmp/config/作者简历.pdf");
     expect(articlePrompt.text).toContain("不得输出电话、邮箱、期望薪资");
     expect(articlePrompt.text).toContain("article.html");
     expect(articlePrompt.text).toContain("文章正文不再生成 Markdown 副本");

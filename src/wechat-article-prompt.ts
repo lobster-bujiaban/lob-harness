@@ -5,7 +5,7 @@ export const WECHAT_ARTICLE_PROMPT = `请把当前工作区的开源仓库写成
 - 输出目录：wechat
 - 项目名、GitHub 地址和项目 Logo：从当前工作区、Git remote、README 和 manifest 自动识别
 - 创作者品牌：虾哥不加班
-- 作者简历：优先读取 tmp/config/resume-context.md；原始 PDF 位于 tmp/config/池世栓-AI应用架构师-简历.pdf，仅作本地事实来源
+- 作者简历：优先读取 tmp/config/resume-context.md；原始 PDF 位于 tmp/config/作者简历.pdf，仅作本地事实来源
 
 执行要求：
 1. 先读取 tmp/config/resume-context.md，提取与当前项目直接相关的职业节点、生产经验、开源积累和价值判断；再使用 list_files、read_file 和 grep 检查 README、manifest、入口文件、核心源码、测试、Git remote 与 Logo 候选，并通过只读 Git 命令查看提交历史、阶段性提交和文件演进。确认项目最初要解决的问题、目标用户、关键里程碑、能力演进、差异点、实现取舍和当前边界。不要只读 README；至少引用 2 个源码或测试文件，并使用真实 Git 历史校准时间线。

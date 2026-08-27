@@ -121,7 +121,39 @@ video_analyze_source → video_create_hyperframes → video_generate_voice → v
 
 源码、输出目录和音频路径都必须位于当前会话工作区内；渲染只向模型返回末尾摘要日志，避免 Hyperframes/FFmpeg 输出占满上下文。
 
-Web 输入框左下角「+」菜单提供「生成宣传视频」和「生成公众号文章」：前者制作有声竖版 MP4，后者基于当前源码生成文章正文、发布信息与证据清单；两者都会为当前工作区新建会话并自动发送内置提示词，不必复制粘贴。提示词分别来自 `GET /api/prompts/promo-video` 和 `GET /api/prompts/wechat-article`。
+### Web 一键生成宣传内容
+
+Web 输入框左下角「+」菜单提供「生成宣传视频」和「生成公众号文章」。两个入口都会读取当前选中工作区的源码、自动新建会话并发送内置提示词，不需要手工复制提示词。使用前先在左侧选择正确的源码工作区，并保持权限为 `Workspace Write`，否则 Agent 无法写入交付文件。
+
+#### 生成宣传视频
+
+1. 在 Web 设置中配置可用的对话模型；需要自动配音时，再在 `tmp/config/credentials.json` 配置 `dashscopeApiKey`，或设置 `DASHSCOPE_API_KEY`。
+2. 选择需要宣传的源码工作区，点击输入框左下角「+」→「生成宣传视频」。
+3. Agent 会分析 README、manifest、源码、测试、Git remote 和 Logo，生成带源码证据的视频方案，然后依次创建 Hyperframes 工程、生成配音并渲染成片。
+4. 渲染完成后到 `videos/renders/<slug>.mp4` 查看有声竖版视频；`videos/` 还包含视频方案、发布文案、封面提示词、证据清单和可继续编辑的 Hyperframes 工程。
+
+只有 Agent 明确报告 MP4 非空、全部场景均有音频时才算完成。配音会调用阿里云百炼，渲染需要下载 Hyperframes 依赖并以 `danger-full-access` 执行；遇到审批时需确认后才能继续。重复生成会继续使用工作区内的 `videos/`，需要保留旧结果时应先自行备份或改名。
+
+内置提示词可通过 `GET /api/prompts/promo-video` 查看。
+
+#### 生成公众号文章
+
+1. 可选：把作者原始简历放在 `tmp/config/作者简历.pdf`，并准备脱敏后的 `tmp/config/resume-context.md`。本项目本地环境已内置这两份文件；`tmp/` 已被 Git 忽略，不会提交简历。脱敏上下文不得包含电话、邮箱、薪资等不应公开的信息。
+2. 选择需要介绍的源码工作区，点击输入框左下角「+」→「生成公众号文章」。
+3. Agent 会结合脱敏职业背景、Git 提交历史、README、源码和测试，讲清项目为什么从 0 开始、为什么选择开源、关键演进与架构取舍、项目作用及职业思考。无法从资料证实的个人经历会进入“作者确认问题”，不会直接编造。
+4. 完成后打开 `wechat/article.html` 查看排版结果。页面右上角的「一键复制」会复制正文富文本，可直接粘贴到微信公众号编辑器；按钮和辅助说明不会被复制。
+
+公众号交付文件：
+
+| 文件 | 用途 |
+|---|---|
+| `wechat/article.html` | 最终文章与公众号排版，包含富文本一键复制 |
+| `wechat/publish-kit.md` | 标题候选、摘要、标签、朋友圈文案和封面提示词 |
+| `wechat/evidence.md` | 源码路径、行号、提交节点与论断证据 |
+
+正文不额外生成 Markdown 副本。发布前仍应人工确认个人经历、项目数据、GitHub 地址、封面和事实证据。重复生成会写入同一个 `wechat/` 目录，需要保留旧版本时应先备份或改名。
+
+内置提示词可通过 `GET /api/prompts/wechat-article` 查看。
 
 连续 `parallel` 工具最多并发 4 个；`exclusive` 工具构成双向 barrier。执行可以乱序完成，但结果按模型调用顺序写入。工具还可声明超时，超时后等待 executor 协作式停稳再返回 `TOOL_TIMEOUT`。
 
