@@ -18,6 +18,7 @@ import { settingsLlmProvider } from "./llm-service.ts";
 import { assembleWebContext, dumpWebConfig, loadWebConfig, readProfilePatch, type ProductConfig } from "./composition.ts";
 import { LocalFsProvider } from "./fs-service.ts";
 import { PROMO_VIDEO_PROMPT } from "./promo-video-prompt.ts";
+import { WECHAT_ARTICLE_PROMPT } from "./wechat-article-prompt.ts";
 
 const DEFAULT_ROOTS = {
   tmp: resolve("tmp"),
@@ -528,6 +529,11 @@ export async function handleRequest(
 
   if (url.pathname === "/api/prompts/promo-video") {
     sendJson(res, 200, { text: PROMO_VIDEO_PROMPT });
+    return;
+  }
+
+  if (url.pathname === "/api/prompts/wechat-article") {
+    sendJson(res, 200, { text: WECHAT_ARTICLE_PROMPT });
     return;
   }
 

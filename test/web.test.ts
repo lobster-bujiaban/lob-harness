@@ -35,6 +35,13 @@ test("回放 API 能列出并读取 fixture", async () => {
     expect(prompt.text).toContain("video_analyze_source");
     expect(prompt.text).toContain("video_render_hyperframes");
 
+    const articlePromptRes = await fetch(`http://127.0.0.1:${port}/api/prompts/wechat-article`);
+    const articlePrompt = (await articlePromptRes.json()) as { text: string };
+    expect(articlePromptRes.ok).toBe(true);
+    expect(articlePrompt.text).toContain("article.md");
+    expect(articlePrompt.text).toContain("完读价值");
+    expect(articlePrompt.text).toContain("不得编造平台权重");
+
     const versionRes = await fetch(`http://127.0.0.1:${port}/api/dev/version`);
     const version = (await versionRes.json()) as { version: string };
     expect(versionRes.ok).toBe(true);

@@ -1668,8 +1668,10 @@ function openComposerAddMenu() {
   const workspaceName = selectedWorkspace
     ? (workspaceAliases[selectedWorkspace] ?? pathName(selectedWorkspace))
     : "未分组";
-  menu.innerHTML = `<button type="button" data-action="promo-video"><span>▷</span><span><strong>生成宣传视频</strong><small></small></span></button>`;
-  menu.querySelector("small").textContent = `基于 ${workspaceName} 的源码生成`;
+  menu.innerHTML = `
+    <button type="button" data-action="promo-video"><span>▷</span><span><strong>生成宣传视频</strong><small></small></span></button>
+    <button type="button" data-action="wechat-article"><span>文</span><span><strong>生成公众号文章</strong><small></small></span></button>`;
+  for (const subtitle of menu.querySelectorAll("small")) subtitle.textContent = `基于 ${workspaceName} 的源码生成`;
   const rect = attachButton.getBoundingClientRect();
   menu.style.left = `${rect.left}px`;
   menu.style.bottom = `${window.innerHeight - rect.top + 8}px`;
@@ -1679,9 +1681,11 @@ function openComposerAddMenu() {
   };
   setTimeout(() => document.addEventListener("click", close, { once: true }));
   menu.addEventListener("click", (event) => {
-    if (event.target.closest("button")?.dataset.action !== "promo-video") return;
+    const action = event.target.closest("button")?.dataset.action;
+    if (action !== "promo-video" && action !== "wechat-article") return;
     menu.remove();
-    void startPromoVideo(selectedWorkspace);
+    if (action === "promo-video") void startPromoVideo(selectedWorkspace);
+    else void startWechatArticle(selectedWorkspace);
   });
 }
 
@@ -1819,6 +1823,25 @@ async function startPromoVideo(root) {
     await sendTurn(prompt.text);
   } catch (err) {
     sessionStatus.textContent = err instanceof Error ? err.message : "无法开始生成宣传视频";
+    sessionStatus.classList.add("error");
+  }
+}
+
+async function startWechatArticle(root) {
+  if (managingSessions) return;
+  selectedWorkspace = root;
+  sessionStatus.classList.remove("error");
+  sessionStatus.textContent = "正在开始生成公众号文章…";
+  try {
+    const promptRes = await fetch("/api/prompts/wechat-article");
+    const prompt = await promptRes.json();
+    if (!promptRes.ok) throw new Error(prompt.error ?? "无法加载公众号文章提示词");
+    const session = await createSession(root);
+    if (session === undefined) return;
+    await loadSession(session.source, session.file);
+    await sendTurn(prompt.text);
+  } catch (err) {
+    sessionStatus.textContent = err instanceof Error ? err.message : "无法开始生成公众号文章";
     sessionStatus.classList.add("error");
   }
 }

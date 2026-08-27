@@ -121,7 +121,7 @@ video_analyze_source → video_create_hyperframes → video_generate_voice → v
 
 源码、输出目录和音频路径都必须位于当前会话工作区内；渲染只向模型返回末尾摘要日志，避免 Hyperframes/FFmpeg 输出占满上下文。
 
-Web 侧栏工作区「•••」菜单提供「生成宣传视频」：为该工作区新建会话并自动发送内置提示词，不必复制粘贴。提示词与 `GET /api/prompts/promo-video` 同一份。
+Web 输入框左下角「+」菜单提供「生成宣传视频」和「生成公众号文章」：前者制作有声竖版 MP4，后者基于当前源码生成文章正文、发布信息与证据清单；两者都会为当前工作区新建会话并自动发送内置提示词，不必复制粘贴。提示词分别来自 `GET /api/prompts/promo-video` 和 `GET /api/prompts/wechat-article`。
 
 连续 `parallel` 工具最多并发 4 个；`exclusive` 工具构成双向 barrier。执行可以乱序完成，但结果按模型调用顺序写入。工具还可声明超时，超时后等待 executor 协作式停稳再返回 `TOOL_TIMEOUT`。
 
