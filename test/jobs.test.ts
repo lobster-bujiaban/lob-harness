@@ -120,7 +120,8 @@ test("job 立即返回，父级可继续，结果只在子日志", async () => {
   expect(parentEvents.some((event) => event.type === "job_ended")).toBe(false);
   expect(projectMessages(parentEvents).some((message) => message.role === "assistant" && message.content === "parent-ok"))
     .toBe(true);
-  expect(parentEvents.find((event) => event.type === "tool_result" && event.name === "job")?.output)
+  const jobResult = parentEvents.find((event) => event.type === "tool_result" && event.name === "job");
+  expect(jobResult?.type === "tool_result" ? jobResult.output : undefined)
     .toContain(`started job ${started.jobId}`);
 
   const running = await ctx.jobs.output(started.jobId, "parent.jsonl");

@@ -108,7 +108,8 @@ test("子 Agent 用独立会话，中间步骤不进入父级投影", async () =
   expect(parentEvents.find((event) => event.type === "tool_result" && event.name === "subagent")).toMatchObject({
     output: expect.stringContaining("started subagent"),
   });
-  expect(parentEvents.find((event) => event.type === "tool_result" && event.name === "subagent")?.output)
+  const subagentResult = parentEvents.find((event) => event.type === "tool_result" && event.name === "subagent");
+  expect(subagentResult?.type === "tool_result" ? subagentResult.output : undefined)
     .toContain("child-ok");
   expect(projectMessages(parentEvents).some((message) => message.role === "tool" && message.content.includes("child-ok")))
     .toBe(true);

@@ -59,7 +59,7 @@ export class JobsService extends Service implements JobRuntime {
       workspaceRoot: request.workspaceRoot,
       toolExclude: CHILD_TOOL_EXCLUDE,
     });
-    let resolveSettled = () => undefined;
+    let resolveSettled: () => void = () => undefined;
     const settled = new Promise<void>((resolve) => {
       resolveSettled = resolve;
     });
