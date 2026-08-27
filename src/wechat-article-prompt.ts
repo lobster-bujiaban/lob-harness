@@ -37,7 +37,7 @@ export const WECHAT_ARTICLE_PROMPT = `请为当前开源项目生成一篇适合
 ## 调用与完成
 
 1. 先在内心确定一句文章核心：作者为什么非做这个项目不可。所有段落和视觉都服务这句话。
-2. 一次性组织 wechat_create_article 的 plan。opening 2～3 段；journey 3～5 节点；mechanism 3～6 步且必须有 title；comparison 必须有 beforeTitle / afterTitle；sections 2～4 节，标题字段是 title 不是 heading；closing 必须是对象 { summary, question }，不要用字符串数组；evidence 用 source 不是 file。publish 字段名是 titles（3～5 条）、abstract（20～120 字）、shareCopy、tags、coverPrompt，不要用 titleCandidates / summary / moments。
+2. 一次性组织 wechat_create_article 的 plan。opening 2～3 段；journey 3～5 节点；mechanism 3～6 步且必须有 title；comparison 必须有 beforeTitle / afterTitle；sections 2～4 节，标题字段是 title 不是 heading；closing 必须是对象 { summary, question }，不要用字符串数组；evidence 用 source 不是 file。publish 字段名是 titles（3～5 条）、abstract（20～120 字）、shareCopy、tags、coverPrompt，不要用 titleCandidates / summary / moments。coverPrompt 只写画面、构图、材质和禁止项，不要把标题写进去；发布文案里的封面提示词会自动带上标题、作者、项目名和摘要。
 3. 调用 wechat_create_article，outputDir 固定为 wechat。参数校验失败时会一次列出全部问题，只按清单修订一次再调用，不要 grep 源码，不要重新扫描项目。
 4. 最终只报告 article.html、发布文案.md 的真实路径、文件大小、正文约字数、核心故事线和视觉模块数量，不输出大段复核报告。
 `;

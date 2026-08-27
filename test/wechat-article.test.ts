@@ -83,6 +83,9 @@ test("结构化方案渲染成带图解、发布助手和一键复制的单文�
   expect(publishCopy).toContain("虾哥不加班");
   expect(publishCopy).toContain("## 摘要（不超过 120 字）");
   expect(publishCopy).toContain("## 封面提示词");
+  expect(publishCopy.split("## 封面提示词")[1]).toContain("我为什么重新写了一遍 Agent 的运行骨架");
+  expect(publishCopy.split("## 封面提示词")[1]).toContain("一篇关于 Agent 运行时、事件日志与职业选择的开源手记。");
+  expect(publishCopy.split("## 封面提示词")[1]).toContain("画面：");
   expect(publishCopy).not.toContain("朋友圈文案");
 });
 
