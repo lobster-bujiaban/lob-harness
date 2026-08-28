@@ -109,7 +109,7 @@ const VIDEO_PLAN_SCHEMA = {
     logoPath: { type: "string", minLength: 1 },
     requireNarration: { type: "boolean" },
     audienceQuestion: { type: "string", minLength: 1 },
-    searchableTitle: { type: "string", minLength: 1 },
+    searchableTitle: { type: "string", minLength: 1, maxLength: 30, description: "发布标题，包含空格和结尾标点在内最多 30 个字符" },
     searchKeywords: { type: "array", minItems: 2, maxItems: 8, items: { type: "string", minLength: 1 } },
     saveValue: { type: "array", minItems: 2, maxItems: 8, items: { type: "string", minLength: 1 } },
     seriesNext: { type: "string", minLength: 1 },
@@ -620,7 +620,7 @@ function parsePlan(value: unknown): HyperframesPlan {
     ...(value.logoPath === undefined ? {} : { logoPath: stringValue(value.logoPath, "plan.logoPath") }),
     requireNarration: value.requireNarration === undefined ? true : booleanValue(value.requireNarration, "plan.requireNarration"),
     ...(value.audienceQuestion === undefined ? {} : { audienceQuestion: stringValue(value.audienceQuestion, "plan.audienceQuestion") }),
-    ...(value.searchableTitle === undefined ? {} : { searchableTitle: stringValue(value.searchableTitle, "plan.searchableTitle") }),
+    ...(value.searchableTitle === undefined ? {} : { searchableTitle: searchableTitleValue(value.searchableTitle) }),
     ...(value.searchKeywords === undefined ? {} : { searchKeywords: stringArray(value.searchKeywords, "plan.searchKeywords", 8) }),
     ...(value.saveValue === undefined ? {} : { saveValue: stringArray(value.saveValue, "plan.saveValue", 8) }),
     ...(value.seriesNext === undefined ? {} : { seriesNext: stringValue(value.seriesNext, "plan.seriesNext") }),
@@ -650,9 +650,9 @@ function renderIndex(plan: HyperframesPlan): string {
     const start = cursor; cursor += scene.duration;
     const audioId = String(index + 1).padStart(2, "0");
     const audio = scene.audioPath === undefined ? "" : `\n      <audio id="audio-${audioId}" src="${escapeHtml(scene.audioPath)}" data-start="${start.toFixed(3)}" data-duration="${scene.duration.toFixed(3)}" data-track-index="10"></audio>`;
-    return `      <div class="scene" data-composition-id="${escapeHtml(scene.id)}" data-composition-src="compositions/frames/${escapeHtml(scene.id)}.html" data-start="${start.toFixed(3)}" data-duration="${scene.duration.toFixed(3)}" data-track-index="${index % 2}"></div>${audio}`;
+    return `      <div id="scene-${escapeHtml(scene.id)}" class="scene" data-composition-id="${escapeHtml(scene.id)}" data-composition-src="compositions/frames/${escapeHtml(scene.id)}.html" data-start="${start.toFixed(3)}" data-duration="${scene.duration.toFixed(3)}" data-track-index="${index % 2}"></div>${audio}`;
   }).join("\n");
-  return `<!doctype html>\n<html><head><meta charset="UTF-8"><meta name="viewport" content="width=1080,height=1920"><style>*{box-sizing:border-box}html,body{margin:0;width:1080px;height:1920px;overflow:hidden;background:#000}.scene{position:absolute;inset:0}</style></head><body><div id="root" data-composition-id="main" data-no-timeline data-start="0" data-duration="${cursor.toFixed(3)}" data-width="1080" data-height="1920">\n${tracks}\n      <div class="scene" data-composition-id="captions" data-composition-src="compositions/captions.html" data-start="0" data-duration="${cursor.toFixed(3)}" data-track-index="20"></div>\n    </div></body></html>\n`;
+  return `<!doctype html>\n<html><head><meta charset="UTF-8"><meta name="viewport" content="width=1080,height=1920"><style>*{box-sizing:border-box}html,body{margin:0;width:1080px;height:1920px;overflow:hidden;background:#000}.scene{position:absolute;inset:0}</style></head><body><div id="root" data-composition-id="main" data-no-timeline data-start="0" data-duration="${cursor.toFixed(3)}" data-width="1080" data-height="1920">\n${tracks}\n      <div id="scene-captions" class="scene" data-composition-id="captions" data-composition-src="compositions/captions.html" data-start="0" data-duration="${cursor.toFixed(3)}" data-track-index="20"></div>\n    </div></body></html>\n`;
 }
 
 function renderPublishCopy(plan: HyperframesPlan): string {
@@ -665,7 +665,7 @@ function renderPublishCopy(plan: HyperframesPlan): string {
   const coverLogo = plan.logoPath === undefined
     ? `没有项目 Logo，使用“${plan.projectName}”文字标识`
     : `使用当前项目 Logo（${plan.logoPath}）`;
-  const coverPrompt = `抖音知识科普视频竖版封面，9:16，1080×1920。主题：${title} 主标题突出“${title}”，副视觉表达“${coverValue}”。${coverLogo}，并用与本期源码机制直接相关的结构图、流程节点或前后对照作为视觉主体。纸面手绘编辑风格，黑白灰为底，项目强调色点睛，强对比、大字号、主体清晰，手机缩略图下仍可辨认；标题位于中上安全区，关键视觉居中，底部预留平台信息区域。画面体现真实技术内容和项目独特性，不使用通用 AI 机器人素材，不出现二维码、虚假数据、夸张承诺、无关品牌、水印或密集小字。`;
+  const coverPrompt = `抖音知识科普视频竖版封面，3:4，1080×1440。主题：${title} 主标题突出“${title}”，副视觉表达“${coverValue}”。${coverLogo}，并用与本期源码机制直接相关的结构图、流程节点或前后对照作为视觉主体。纸面手绘编辑风格，黑白灰为底，项目强调色点睛，强对比、大字号、主体清晰，手机缩略图下仍可辨认；标题位于中上安全区，关键视觉居中，底部预留平台信息区域。画面体现真实技术内容和项目独特性，不使用通用 AI 机器人素材，不出现二维码、虚假数据、夸张承诺、无关品牌、水印或密集小字。`;
   return `# 发布文案\n\n## 标题\n\n${title}\n\n## 描述\n\n${plan.audienceQuestion ?? title}\n\n${repoLine}\n\n${saveValue.length > 0 ? `这条视频讲清：${saveValue.join("、")}。建议收藏，遇到类似问题时可以按步骤排查。` : ""}\n\n${keywords.map((keyword) => `#${keyword.replace(/\s+/gu, "")}`).join(" ")}\n\n## 封面提示词\n\n${coverPrompt}\n\n## 置顶评论\n\n项目源码：${repo}\n关注「${plan.creatorName ?? "虾哥不加班"}」，持续公开 AI Agent 研发与源码拆解。${plan.seriesNext ? `下一期：${plan.seriesNext}。` : ""}\n\n## 发布检查\n\n- 第一帧清楚显示项目名、虾哥公开研发和 GitHub 仓库。\n- 封面标题与正文结论一致，手机缩略图下仍然清晰。\n- 全片和封面只使用项目自带 Logo，不出现二维码或扫码引导。\n- 标题以句号结尾，抖音会把标题和描述连在一起显示。\n- 文案里的仓库写成 owner/repo，不写 https 链接。\n- 标签不超过 5 个。\n- 标题、口播、字幕自然包含核心搜索词，不堆砌关键词。\n`;
 }
 
@@ -676,6 +676,7 @@ function contentChecks(plan: HyperframesPlan) {
   const evidencedTechnicalScenes = technicalScenes.filter((scene) => (scene.evidence?.length ?? 0) > 0);
   return {
     searchableQuestion: Boolean(plan.audienceQuestion && plan.searchableTitle),
+    titleLength: plan.searchableTitle !== undefined && Array.from(withPeriod(plan.searchableTitle)).length <= 30,
     keywords: (plan.searchKeywords?.length ?? 0) >= 2,
     saveValue: (plan.saveValue?.length ?? 0) >= 2,
     seriesContinuation: Boolean(plan.seriesNext),
@@ -695,7 +696,21 @@ function contentChecks(plan: HyperframesPlan) {
 }
 
 function hyperframesConfig() { return { $schema: "https://hyperframes.heygen.com/schema/hyperframes.json", registry: "https://raw.githubusercontent.com/heygen-com/hyperframes/main/registry", paths: { blocks: "compositions", components: "compositions/components", assets: "assets" }, media: { autoProxy: true }, skill: "faceless-explainer", authoringSkill: "faceless-explainer" }; }
-function packageConfig(slug: string) { return { name: slug, private: true, type: "module", scripts: { dev: `npx --yes hyperframes@${HYPERFRAMES_VERSION} preview`, check: `npx --yes hyperframes@${HYPERFRAMES_VERSION} check`, render: `npx --yes hyperframes@${HYPERFRAMES_VERSION} render --output renders/${slug}.mp4` } }; }
+function packageConfig(slug: string) {
+  const raw = `renders/${slug}.raw.mp4`;
+  const output = `renders/${slug}.mp4`;
+  return {
+    name: slug,
+    private: true,
+    type: "module",
+    scripts: {
+      dev: `npx --yes hyperframes@${HYPERFRAMES_VERSION} preview`,
+      check: `npx --yes hyperframes@${HYPERFRAMES_VERSION} check`,
+      "render:raw": `npx --yes hyperframes@${HYPERFRAMES_VERSION} render --output ${raw}`,
+      render: `npm run render:raw && ffmpeg -y -i ${raw} -c:v libx264 -preset medium -crf 18 -maxrate 6M -bufsize 12M -pix_fmt yuv420p -af loudnorm=I=-16:TP=-1.5:LRA=11 -ar 48000 -c:a aac -b:a 192k -movflags +faststart ${output}`,
+    },
+  };
+}
 
 async function applyProjectBranding(
   root: string,
@@ -829,7 +844,7 @@ function evidenceArray(value: unknown, label: string): SourceEvidence[] {
 
 function hardCheckFailures(checks: ReturnType<typeof contentChecks>): string[] {
   const required: Array<keyof typeof checks> = [
-    "keywords", "saveValue", "projectIdentity", "projectVisibility", "repositoryVisible",
+    "searchableQuestion", "titleLength", "keywords", "saveValue", "projectIdentity", "projectVisibility", "repositoryVisible",
     "creatorVisible", "qrCodeAbsent", "visualVariety",
   ];
   const failed = required.filter((key) => checks[key] !== true).map(String);
@@ -867,6 +882,13 @@ function unrestrictedPolicy(workspaceRoot: string): SandboxExecutionPolicy {
 function withPeriod(title: string): string {
   const trimmed = title.trim();
   return /[。！？]$/u.test(trimmed) ? trimmed : `${trimmed}。`;
+}
+function searchableTitleValue(value: unknown): string {
+  const title = stringValue(value, "plan.searchableTitle");
+  if (Array.from(withPeriod(title)).length > 30) {
+    throw new ToolError("plan.searchableTitle 包含空格和结尾标点在内不能超过 30 个字符", "VIDEO_PLAN_INVALID");
+  }
+  return title;
 }
 function githubRepoLabel(url: string): string {
   return url.replace(/^https:\/\/github\.com\//u, "").replace(/\/$/u, "");

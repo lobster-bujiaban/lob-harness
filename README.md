@@ -112,7 +112,7 @@ Web 还提供插件启停、配置保存和教学版热重载。热重载会先�
 
 内置 `Hyperframes Video` 插件把视频制作收敛为四个高层工具：先对当前工作区的完整项目做有界摘要，再由 Agent 生成带源码证据的 3～16 个结构化场景，最后创建、配音并渲染 1080×1920 的 Hyperframes 工程。分析默认排除 `videos`、`tmp`、依赖和构建目录。视频允许 30 秒到 20 分钟，时长由讲透问题所需的信息决定。工程固定使用 `hyperframes@0.7.108`，写在工作区的 `videos/` 下，成片为 `videos/renders/<slug>.mp4`。
 
-视频方案可填写 `audienceQuestion`、`searchableTitle`、`searchKeywords`、`saveValue` 和 `seriesNext`。插件据此生成搜索友好的发布文案、项目专属封面提示词、可收藏价值检查和系列承接。
+视频方案可填写 `audienceQuestion`、`searchableTitle`、`searchKeywords`、`saveValue` 和 `seriesNext`。发布标题包含空格和结尾标点在内最多 30 个字符；项目专属封面按 3:4、1080×1440 生成提示词。插件据此生成搜索友好的发布文案、可收藏价值检查和系列承接。
 
 需要有声成片时，可以在场景的 `audioPath` 中提供工作区内的本地音频，也可以调用 `video_generate_voice`。后者从插件配置的混合音色池随机选择一个音色，同一工程再次生成时沿用该音色；默认包含 CosyVoice v3 的龙安朗、龙安洋、Bella 3.0，以及 Edge TTS 的 `zh-CN-XiaoyiNeural`，所有音色统一使用 `+25%`（1.25 倍）语速。工具会按音色自动选择引擎；CosyVoice 的 API Key 优先读取 `tmp/config/credentials.json` 的 `dashscopeApiKey`，并兼容环境变量 `DASHSCOPE_API_KEY`，Edge TTS 需要本机已安装 `edge-tts` 命令。配音无需审批。渲染以 `danger-full-access` 执行，并把 npm 缓存和临时目录放在工程内，避免 Seatbelt 拦住 Puppeteer。典型调用顺序：
 

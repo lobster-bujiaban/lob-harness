@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { analyzeSource, createHyperframesProject, generateVoice, installHyperframesVideo, type HyperframesPlan } from "../src/hyperframes-video.ts";
-import { renderFrame, resolveVisualTemplate } from "../src/hyperframes-visual.ts";
+import { buildCaptionCues, renderFrame, resolveVisualTemplate } from "../src/hyperframes-visual.ts";
 import type { ShellProvider } from "../src/shell-service.ts";
 import { ToolRegistry } from "../src/tools.ts";
 
@@ -59,11 +59,13 @@ test("结构化方案生成完整 Hyperframes 工程", async () => {
   expect(result).toMatchObject({ status: "created", scenes: 3, duration: 30 });
   expect(JSON.parse(await readFile(join(output, "package.json"), "utf8")).scripts.render)
     .toContain("renders/demo-agent.mp4");
+  expect(JSON.parse(await readFile(join(output, "package.json"), "utf8")).scripts.render)
+    .toContain("loudnorm=I=-16:TP=-1.5:LRA=11");
   const hook = await readFile(join(output, "compositions", "frames", "hook.html"), "utf8");
   expect(hook).toContain('class="clip f01-head"');
   expect(hook).toContain('font-family:"Georgia"');
-  expect(hook).toContain('id="f01-draw"');
-  expect(hook).toContain("WRONG PATH");
+  expect(hook).toContain('class="f01-arrow"');
+  expect(hook).toContain("MAIN CHAIN");
   expect(hook).toContain('src="assets/brand/project-logo.png"');
   expect(hook).not.toContain("../../assets");
   expect(hook).toContain("assets/vendor/gsap.min.js");
@@ -72,6 +74,7 @@ test("结构化方案生成完整 Hyperframes 工程", async () => {
   const captions = await readFile(join(output, "compositions", "captions.html"), "utf8");
   expect(captions).toContain("lobster-bujiaban/demo-agent");
   expect(captions).not.toContain("斜杠");
+  expect(captions).toContain("bottom:8.5cqh");
   expect(await readFile(join(output, "assets", "vendor", "gsap.min.js"), "utf8")).toContain("gsap");
   const index = await readFile(join(output, "index.html"), "utf8");
   expect(index).toContain('data-width="1080"');
@@ -81,6 +84,8 @@ test("结构化方案生成完整 Hyperframes 工程", async () => {
   expect(copy).toContain("Agent 中断恢复原理：事件日志与状态投影。");
   expect(copy).toContain("lobster-bujiaban/demo-agent");
   expect(copy).toContain("## 封面提示词");
+  expect(copy).toContain("3:4，1080×1440");
+  expect(copy).not.toContain("封面，9:16");
   expect(copy).toContain("使用当前项目 Logo（assets/brand/project-logo.png）");
   expect(copy).toContain("恢复链路、适用边界");
   expect(copy).not.toContain("https://github.com/");
@@ -100,8 +105,20 @@ test("画面关系由内容推断，不依赖模板字段", () => {
   const loop = { id: "writeback", title: "结果写回历史", narration: "下一圈继续读取工具结果。", duration: 10, bullets: ["工具结果", "写回历史"] };
   const compare = { id: "compact", title: "压缩前后", narration: "摘要替换旧历史。", duration: 10, bullets: ["旧历史", "交接摘要"] };
   expect(resolveVisualTemplate(compare, 1, 4)).toBe("compare");
+  expect(resolveVisualTemplate({ id: "step", title: "状态变化", narration: "历史和工具一起交给模型。", duration: 10, bullets: ["历史", "工具", "模型"] }, 1, 4)).toBe("flow");
   expect(renderFrame({ projectName: "Demo", scenes: [branch] }, branch, 1)).toContain('class="f02-fork"');
   expect(renderFrame({ projectName: "Demo", scenes: [loop] }, loop, 1)).toContain('id="f02-loop"');
+});
+
+test("字幕按短句切分并覆盖完整场景时长", () => {
+  const cues = buildCaptionCues({
+    projectName: "Demo",
+    scenes: [{ id: "flow", title: "主链", narration: "先记录用户输入，再捕获上下文，把历史和工具一起交给模型。模型可以回答，也可以调用工具。", duration: 12 }],
+  });
+  expect(cues.length).toBeGreaterThan(2);
+  expect(cues.every((cue) => Array.from(cue.text).length <= 20)).toBe(true);
+  expect(cues[0]?.start).toBe(0);
+  expect(cues.at(-1)?.end).toBe(12);
 });
 
 test("配音按真实时长回写工程并持久化音色", async () => {
@@ -235,6 +252,7 @@ test("创建视频工具向模型完整声明方案约束", () => {
   const sceneSchema = planSchema.properties.scenes.items;
   const evidenceSchema = sceneSchema.properties.evidence.items;
   expect(planSchema.required).toEqual(["slug", "projectName", "scenes"]);
+  expect(planSchema.properties.searchableTitle).toMatchObject({ maxLength: 30 });
   expect(sceneSchema.required).toEqual(["id", "title", "narration", "duration"]);
   expect(sceneSchema.properties.duration).toMatchObject({ minimum: 3, maximum: 120 });
   expect(sceneSchema.properties.template).toBeUndefined();

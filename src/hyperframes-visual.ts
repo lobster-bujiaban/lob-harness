@@ -49,7 +49,7 @@ export function resolveVisualTemplate(scene: VisualScene, index: number, total: 
   if (index === 0) return "hook";
   if (index === total - 1) return "boundary";
   const meaning = `${scene.id} ${scene.title} ${scene.narration} ${(scene.bullets ?? []).join(" ")}`;
-  if (/前后|之前|之后|变化|替换|压缩|取舍|代价|对照|相比|before|after|versus|\bvs\b/iu.test(meaning)) return "compare";
+  if (/前后对比|从.+变成|替换为|压缩前|压缩后|取舍|代价|对照|相比|before|after|versus|\bvs\b/iu.test(meaning)) return "compare";
   if (/边界|限制|审批|沙箱|禁止|只允许|未知|失败|适用|boundary|limit|approval|sandbox/iu.test(meaning)) return "boundary";
   if (/结论|总结|归纳|要点|原则|四件事|三件事|一句话|事件流|清单|principle|summary/iu.test(meaning)) return "points";
   return "flow";
@@ -117,18 +117,14 @@ window.__timelines["${escapeJs(scene.id)}"]=tl;
 }
 
 export function renderCaptions(plan: VisualPlan): string {
-  let cursor = 0;
-  const cues = plan.scenes.map((scene) => {
-    const start = cursor;
-    cursor += scene.duration;
-    return { start, end: cursor, text: captionNarration(scene.narration) };
-  });
+  const cues = buildCaptionCues(plan);
+  const cursor = plan.scenes.reduce((sum, scene) => sum + scene.duration, 0);
   return `<template>
 <style>
 ${fontFaces()}
-#root{position:absolute;inset:0;width:1080px;height:1920px;pointer-events:none}
-.f-caption{position:absolute;left:8cqw;right:8cqw;top:83.6cqh;padding:1.6cqw 2.4cqw 1.8cqw;background:#F6F6F2;background-image:linear-gradient(to bottom,rgba(20,20,18,.07) 1px,transparent 1px);background-size:100% 1.8cqw;border-top:0.18cqw solid #141412;border-bottom:0.18cqw solid #141412}
-.f-caption p{margin:0;font-family:"Georgia","SimHei",serif;font-size:3.4cqw;line-height:1.22;text-align:center;color:#141412}
+#root{position:absolute;inset:0;width:1080px;height:1920px;pointer-events:none;container-type:size}
+.f-caption{position:absolute;left:9cqw;right:9cqw;bottom:8.5cqh;display:flex;justify-content:center}
+.f-caption p{display:inline-block;max-width:82cqw;margin:0;padding:1.35cqw 2.5cqw 1.55cqw;border-radius:1.1cqw;background:rgba(20,20,18,.92);box-shadow:0 .3cqw .8cqw rgba(0,0,0,.2);font-family:"SimHei",sans-serif;font-size:3.35cqw;font-weight:600;line-height:1.28;letter-spacing:.02em;text-align:center;color:#fff}
 </style>
 <script src="assets/vendor/gsap.min.js"></script>
 <div id="root" data-composition-id="captions" data-width="1080" data-height="1920" data-duration="${cursor}">
@@ -139,15 +135,66 @@ const cues=${JSON.stringify(cues)};
 const node=document.querySelector("#f-caption p");
 window.__timelines=window.__timelines||{};
 const tl=gsap.timeline({paused:true});
-cues.forEach((c,i)=>{
+cues.forEach((c)=>{
   tl.call(()=>{node.textContent=c.text;},[],c.start);
-  tl.fromTo("#f-caption",{opacity:i===0?0:.18},{opacity:1,duration:.45,ease:"sine.inOut"},c.start);
-  tl.to("#f-caption",{opacity:.18,duration:.28,ease:"sine.inOut"},Math.max(c.start+.5,c.end-.28));
+  tl.fromTo("#f-caption",{y:12,opacity:0},{y:0,opacity:1,duration:.16,ease:"power2.out"},c.start);
+  tl.to("#f-caption",{y:-6,opacity:0,duration:.12,ease:"power1.in"},Math.max(c.start+.35,c.end-.12));
 });
 window.__timelines.captions=tl;
 </script>
 </template>
 `;
+}
+
+export function buildCaptionCues(plan: VisualPlan): { start: number; end: number; text: string }[] {
+  const cues: { start: number; end: number; text: string }[] = [];
+  let sceneStart = 0;
+  for (const scene of plan.scenes) {
+    const chunks = captionChunks(captionNarration(scene.narration));
+    const weights = chunks.map((text) => Math.max(6, Array.from(text).length));
+    const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+    let usedWeight = 0;
+    for (let index = 0; index < chunks.length; index += 1) {
+      const start = sceneStart + scene.duration * usedWeight / totalWeight;
+      usedWeight += weights[index]!;
+      const end = index === chunks.length - 1 ? sceneStart + scene.duration : sceneStart + scene.duration * usedWeight / totalWeight;
+      cues.push({ start: Number(start.toFixed(3)), end: Number(end.toFixed(3)), text: chunks[index]! });
+    }
+    sceneStart += scene.duration;
+  }
+  return cues;
+}
+
+function captionChunks(text: string, maxLength = 20): string[] {
+  const phrases = text.match(/[^，。！？；：,.!?;:]+[，。！？；：,.!?;:]?/gu)?.map((part) => part.trim()).filter(Boolean) ?? [text];
+  const result: string[] = [];
+  let line = "";
+  for (const phrase of phrases) {
+    const characters = Array.from(phrase);
+    if (characters.length > maxLength) {
+      if (line) result.push(line);
+      const words = phrase.split(/\s+/u).filter(Boolean);
+      if (words.length > 1) {
+        let wordLine = "";
+        for (const word of words) {
+          const candidate = wordLine ? `${wordLine} ${word}` : word;
+          if (Array.from(candidate).length <= maxLength || !wordLine) wordLine = candidate;
+          else { result.push(wordLine); wordLine = word; }
+        }
+        if (wordLine) result.push(wordLine);
+      } else {
+        for (let index = 0; index < characters.length; index += maxLength) result.push(characters.slice(index, index + maxLength).join(""));
+      }
+      line = "";
+    } else if (Array.from(line + phrase).length <= maxLength) {
+      line += phrase;
+    } else {
+      if (line) result.push(line);
+      line = phrase;
+    }
+  }
+  if (line) result.push(line);
+  return result.length > 0 ? result : [text];
 }
 
 type Stage = { html: string; css: string; motion: string; paper: boolean };
@@ -168,7 +215,7 @@ function renderStage(kind: FrameKind, p: string, items: string[], duration: numb
 }
 
 function hookStage(p: string, items: string[], duration: number, band: string): Stage {
-  const wrong = shortLabel(items[0] ?? "旧做法", 8);
+  const wrong = shortLabel(items[0] ?? "用户指令", 10);
   const nodes = (items.slice(1, 4).length >= 2 ? items.slice(1, 4) : items.slice(0, 3)).map((item) => shortLabel(item, 8));
   while (nodes.length < 2) nodes.push("下一步");
   const nodeHtml = nodes.map((item, i) => `<div class="${p}-node ${p}-n${i + 1}"><p>${escapeHtml(item)}</p></div>`).join("");
@@ -190,20 +237,18 @@ function hookStage(p: string, items: string[], duration: number, band: string): 
 .${p}-band{position:absolute;left:6cqw;right:6cqw;top:79.4cqh;box-sizing:border-box;background:#0891B2;padding:2.4cqw 3cqw;border-radius:3px 9px 5px 8px;box-shadow:1px 1px 0 #155E75}
 .${p}-band p{margin:0;font-family:"SimHei",sans-serif;font-size:3.8cqw;letter-spacing:.03em;line-height:1.18;color:#fff;text-align:center}`,
     html: `<div id="${p}-panel" class="clip ${p}-panel" data-start="0" data-duration="${duration}" data-track-index="4">
-    <p class="${p}-tag">WRONG PATH · 对照</p>
-    <div class="${p}-wrong"><span class="x">×</span><p>${escapeHtml(wrong)}</p>
-      <svg class="${p}-scratch" viewBox="0 0 100 100" preserveAspectRatio="none"><path id="${p}-draw" d="M8 18 C 22 8, 40 30, 58 14 S 86 28, 94 12 M12 78 C 30 92, 48 60, 70 84 S 90 70, 96 88 M18 48 L 86 42" stroke-dasharray="280" stroke-dashoffset="280"></path></svg>
+    <p class="${p}-tag">MAIN CHAIN · 先看完整链路</p>
+    <div class="${p}-wrong"><span class="x">1</span><p>${escapeHtml(wrong)}</p>
     </div>
     <div class="${p}-arrow">→</div>
     <div class="${p}-graph">${nodeHtml}</div>
-    <p class="${p}-note">划掉死板的一条线，改成能看见的图</p>
+    <p class="${p}-note">一条输入沿主链流转，再逐层拆开</p>
   </div>
   <div id="${p}-band" class="clip ${p}-band" data-start="0" data-duration="${duration}" data-track-index="5"><p>${escapeHtml(band)}</p></div>`,
     motion: `tl.fromTo("#${p}-panel",{y:46,opacity:0,rotation:-1.4},{y:0,opacity:1,rotation:-0.4,duration:.7,ease:"power3.out"},1.15);
 tl.fromTo(".${p}-wrong",{scale:.9,opacity:0},{scale:1,opacity:1,duration:.45,ease:"power2.out"},1.9);
-tl.fromTo("#${p}-draw",{strokeDashoffset:280},{strokeDashoffset:0,duration:.9,ease:"power2.inOut"},2.2);
 tl.fromTo(".${p}-arrow",{opacity:0,x:-8},{opacity:1,x:0,duration:.28,ease:"power4.out"},3.1);
-document.querySelectorAll(".${p}-node").forEach((n,i)=>{tl.fromTo(n,{scale:.7,opacity:0},{scale:1,opacity:1,duration:.38,ease:"back.out(1.7)"},3.4+i*.28)});
+document.querySelectorAll(".${p}-node").forEach((n,i)=>{tl.fromTo(n,{scale:.7,opacity:0},{scale:1,opacity:1,duration:.38,ease:"back.out(1.7)"},[${nodes.map((_, index) => beatTime(duration, index, nodes.length, 3.4, .62)).join(",")}][i])});
 tl.fromTo(".${p}-note",{y:12,opacity:0},{y:0,opacity:1,duration:.4,ease:"power2.out"},${late(duration, 4)});
 tl.fromTo("#${p}-band",{y:26,opacity:0,rotation:-1.1},{y:0,opacity:1,rotation:-0.3,duration:.5,ease:"back.out(1.4)"},${late(duration)});`,
   };
@@ -212,7 +257,7 @@ tl.fromTo("#${p}-band",{y:26,opacity:0,rotation:-1.1},{y:0,opacity:1,rotation:-0
 function pipelineStage(p: string, items: string[], duration: number, band: string): Stage {
   const nodes = items.slice(0, 4);
   while (nodes.length < 2) nodes.push("下一步");
-  const nodeHtml = nodes.map((item, i) => `<div class="${p}-node ${p}-n${i + 1}"><p>${escapeHtml(shortLabel(item, 6))}</p></div>`).join("");
+  const nodeHtml = nodes.map((item, i) => `<div class="${p}-node ${p}-n${i + 1}"><p>${escapeHtml(shortLabel(item, 10))}</p></div>`).join("");
   const count = Math.min(4, Math.max(2, nodes.length));
   const nodeCss = Array.from({ length: count }, (_, i) => `.${p}-n${i + 1}{left:${(i * 80) / Math.max(count - 1, 1)}%;top:4%}`).join("");
   return {
@@ -236,8 +281,8 @@ ${nodeCss}
     <p class="${p}-note">${escapeHtml(shortLabel(band, 22))}</p>
   </div>`,
     motion: `tl.fromTo("#${p}-panel",{y:40,opacity:0,rotation:.6},{y:0,opacity:1,rotation:.2,duration:.65,ease:"power3.out"},1.15);
-document.querySelectorAll(".${p}-node").forEach((n,i)=>{tl.fromTo(n,{scale:.7,opacity:0},{scale:1,opacity:1,duration:.35,ease:"back.out(1.6)"},2.1+i*.45)});
-tl.fromTo("#${p}-fill",{scaleX:0},{scaleX:1,duration:${Math.min(3.4, Math.max(1.8, duration * 0.28)).toFixed(2)},ease:"power1.inOut"},2.3);
+document.querySelectorAll(".${p}-node").forEach((n,i)=>{tl.fromTo(n,{scale:.7,opacity:0},{scale:1,opacity:1,duration:.35,ease:"back.out(1.6)"},[${nodes.map((_, index) => beatTime(duration, index, nodes.length, 2.1, .58)).join(",")}][i])});
+tl.fromTo("#${p}-fill",{scaleX:0},{scaleX:1,duration:${Math.max(2.2, duration * .48).toFixed(2)},ease:"power1.inOut"},2.3);
 tl.fromTo("#${p}-draw",{strokeDashoffset:260},{strokeDashoffset:0,duration:1.1,ease:"power2.inOut"},2.6);
 tl.fromTo(".${p}-note",{y:14,opacity:0},{y:0,opacity:1,duration:.45,ease:"power3.out"},${late(duration, 3.6)});`,
   };
@@ -269,14 +314,14 @@ function branchStage(p: string, items: string[], duration: number, band: string)
     motion: `tl.fromTo("#${p}-panel",{scale:.94,opacity:0,rotation:-.8},{scale:1,opacity:1,rotation:.15,duration:.6,ease:"power3.out"},1.1);
 tl.fromTo("#${p}-decision",{scale:.6,opacity:0},{scale:1,opacity:1,duration:.45,ease:"back.out(1.7)"},1.8);
 tl.fromTo("#${p}-draw",{strokeDashoffset:360},{strokeDashoffset:0,duration:1.1,ease:"power2.inOut"},2.35);
-tl.fromTo("#${p}-a",{x:-24,opacity:0},{x:0,opacity:1,duration:.45,ease:"power2.out"},3.35);
-tl.fromTo("#${p}-b",{x:24,opacity:0},{x:0,opacity:1,duration:.45,ease:"power2.out"},3.65);
+tl.fromTo("#${p}-a",{x:-24,opacity:0},{x:0,opacity:1,duration:.45,ease:"power2.out"},${beatTime(duration, 1, 3, 1.8, .58)});
+tl.fromTo("#${p}-b",{x:24,opacity:0},{x:0,opacity:1,duration:.45,ease:"power2.out"},${beatTime(duration, 2, 3, 1.8, .58)});
 tl.fromTo(".${p}-note",{y:12,opacity:0},{y:0,opacity:1,duration:.4,ease:"power2.out"},${late(duration, 3.5)});`,
   };
 }
 
 function loopStage(p: string, items: string[], duration: number): Stage {
-  const nodes = items.slice(0, 4).map((item) => shortLabel(item, 6));
+  const nodes = items.slice(0, 4).map((item) => shortLabel(item, 9));
   while (nodes.length < 4) nodes.push(["处理", "写回", "继续"][nodes.length - 1] ?? "继续");
   const nodeHtml = nodes.map((item, i) => `<div class="${p}-node ${p}-n${i + 1}"><p>${escapeHtml(item)}</p></div>`).join("");
   return {
@@ -303,7 +348,7 @@ function loopStage(p: string, items: string[], duration: number): Stage {
     <p class="${p}-note">每走一步，留下一个检查点</p>
   </div>`,
     motion: `tl.fromTo("#${p}-panel",{y:40,opacity:0},{y:0,opacity:1,duration:.6,ease:"power3.out"},1.15);
-document.querySelectorAll(".${p}-node").forEach((n,i)=>{tl.fromTo(n,{scale:.7,opacity:0},{scale:1,opacity:1,duration:.35,ease:"back.out(1.6)"},2.1+i*.42)});
+document.querySelectorAll(".${p}-node").forEach((n,i)=>{tl.fromTo(n,{scale:.7,opacity:0},{scale:1,opacity:1,duration:.35,ease:"back.out(1.6)"},[${nodes.map((_, index) => beatTime(duration, index, nodes.length, 2.1, .58)).join(",")}][i])});
 tl.fromTo("#${p}-e1",{scaleX:0},{scaleX:1,duration:.32,ease:"power2.out"},2.6);
 tl.fromTo("#${p}-e2",{scaleY:0},{scaleY:1,duration:.32,ease:"power2.out"},3.0);
 tl.fromTo("#${p}-e3",{scaleX:0},{scaleX:1,duration:.32,ease:"power2.out"},3.4);
@@ -492,6 +537,12 @@ function repositoryLabel(url: string): string {
 
 function late(duration: number, bias = 3.2): string {
   return Math.max(duration * 0.62, duration - bias).toFixed(2);
+}
+
+function beatTime(duration: number, index: number, count: number, start: number, endRatio: number): string {
+  if (count <= 1) return start.toFixed(2);
+  const end = Math.max(start + 1, duration * endRatio);
+  return (start + (end - start) * index / (count - 1)).toFixed(2);
 }
 
 function escapeHtml(text: string): string {
