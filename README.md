@@ -114,7 +114,7 @@ Web 还提供插件启停、配置保存和教学版热重载。热重载会先�
 
 视频方案可填写 `audienceQuestion`、`searchableTitle`、`searchKeywords`、`saveValue` 和 `seriesNext`。插件据此生成搜索友好的发布文案、项目专属封面提示词、可收藏价值检查和系列承接。
 
-需要有声成片时，可以在场景的 `audioPath` 中提供工作区内的本地音频，也可以调用 `video_generate_voice`。后者从插件配置的 CosyVoice v3 音色池随机选择一个音色，同一工程再次生成时沿用该音色；API Key 优先读取 `tmp/config/credentials.json` 的 `dashscopeApiKey`，并兼容环境变量 `DASHSCOPE_API_KEY`。配音直接外发到阿里云百炼，不再等待审批。渲染以 `danger-full-access` 执行，并把 npm 缓存和临时目录放在工程内，避免 Seatbelt 拦住 Puppeteer。典型调用顺序：
+需要有声成片时，可以在场景的 `audioPath` 中提供工作区内的本地音频，也可以调用 `video_generate_voice`。后者从插件配置的混合音色池随机选择一个音色，同一工程再次生成时沿用该音色；默认包含 CosyVoice v3 的龙安朗、龙安洋、Bella 3.0，以及 Edge TTS 的 `zh-CN-XiaoyiNeural`，所有音色统一使用 `+25%`（1.25 倍）语速。工具会按音色自动选择引擎；CosyVoice 的 API Key 优先读取 `tmp/config/credentials.json` 的 `dashscopeApiKey`，并兼容环境变量 `DASHSCOPE_API_KEY`，Edge TTS 需要本机已安装 `edge-tts` 命令。配音无需审批。渲染以 `danger-full-access` 执行，并把 npm 缓存和临时目录放在工程内，避免 Seatbelt 拦住 Puppeteer。典型调用顺序：
 
 ```text
 video_analyze_source → video_create_hyperframes → video_generate_voice → video_render_hyperframes

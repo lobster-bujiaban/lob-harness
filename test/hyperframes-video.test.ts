@@ -121,6 +121,7 @@ test("配音按真实时长回写工程并持久化音色", async () => {
   expect(JSON.parse(await readFile(join(output, "audio-meta.json"), "utf8"))).toMatchObject({
     provider: "cosyvoice",
     voice: "longanyang",
+    rate: 1.25,
   });
   expect(JSON.parse(await readFile(join(output, "video-plan.json"), "utf8")).scenes[0]).toMatchObject({
     duration: 10,

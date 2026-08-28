@@ -372,7 +372,7 @@ function resolveConfig(id: string, config: Record<string, unknown>): Record<stri
     if (typeof voiceModel !== "string" || voiceModel.trim().length === 0) {
       throw new Error("hyperframes-video.voiceModel 必须是非空字符串");
     }
-    const voices = config.voices ?? ["longanlang_v3", "longanyang", "loongbella_v3"];
+    const voices = config.voices ?? ["longanlang_v3", "longanyang", "loongbella_v3", "zh-CN-XiaoyiNeural"];
     if (!Array.isArray(voices) || voices.length === 0 || voices.length > 10 || voices.some((voice) => typeof voice !== "string" || !/^[A-Za-z0-9_-]+$/u.test(voice))) {
       throw new Error("hyperframes-video.voices 必须是 1～10 个有效音色名称");
     }

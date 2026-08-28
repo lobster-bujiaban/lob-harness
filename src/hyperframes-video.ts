@@ -1,4 +1,5 @@
-import { copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SandboxExecutionPolicy } from "./sandbox-service.ts";
@@ -12,7 +13,10 @@ const IGNORED_DIRECTORIES = new Set([".git", ".idea", ".next", ".turbo", ".venv"
 const ENTRY_NAMES = new Set(["README.md", "package.json", "pyproject.toml", "Cargo.toml", "go.mod", "pom.xml", "build.gradle", "requirements.txt"]);
 const MAX_FILES = 2_000;
 const MAX_EVIDENCE = 24;
-const DEFAULT_VOICES = ["longanlang_v3", "longanyang", "loongbella_v3"] as const;
+const EDGE_TTS_VOICE = "zh-CN-XiaoyiNeural";
+const EDGE_TTS_RATE = "+25%";
+const VOICE_RATE = 1.25;
+const DEFAULT_VOICES = ["longanlang_v3", "longanyang", "loongbella_v3", EDGE_TTS_VOICE] as const;
 const DASHSCOPE_TTS_URL = "https://dashscope.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer";
 
 export type VoiceSynthesizer = (request: {
@@ -186,7 +190,7 @@ export function installHyperframesVideo(
     }),
     registry.register({
       name: "video_generate_voice",
-      description: "使用 CosyVoice 为 Hyperframes 工程逐场景生成旁白，按真实音频时长重写视频时间轴。旁白会发送到阿里云百炼，无需审批；API Key 只读取 DASHSCOPE_API_KEY。",
+      description: "使用 CosyVoice 或 Edge TTS 为 Hyperframes 工程逐场景生成旁白，按真实音频时长重写视频时间轴。选中音色后自动路由到对应引擎，无需审批。",
       parameters: {
         type: "object",
         properties: {
@@ -208,7 +212,12 @@ export function installHyperframesVideo(
           model: options.voiceModel ?? "cosyvoice-v3-flash",
           sandboxPolicy: shellPolicy,
           ...(requestedVoice === undefined ? {} : { voice: requestedVoice }),
-          synthesize: options.synthesizeVoice ?? dashscopeSynthesizer(options.credentialsPath),
+          synthesize: options.synthesizeVoice ?? routedVoiceSynthesizer({
+            project,
+            shell: options.shell,
+            sandboxPolicy: shellPolicy,
+            credentialsPath: options.credentialsPath,
+          }),
         });
         return JSON.stringify(result, null, 2);
       },
@@ -402,6 +411,8 @@ export async function generateVoice(project: string, options: {
   if (!options.voices.includes(voice)) {
     throw new ToolError(`不支持音色 ${voice}；可选：${options.voices.join("、")}`, "VIDEO_VOICE_UNSUPPORTED");
   }
+  const provider = voice === EDGE_TTS_VOICE ? "edge-tts" : "cosyvoice";
+  const model = provider === "edge-tts" ? "edge-tts" : options.model;
   const voiceDir = join(project, "assets", "voice");
   await mkdir(voiceDir, { recursive: true });
   const scenes: VideoScene[] = [];
@@ -415,7 +426,7 @@ export async function generateVoice(project: string, options: {
     const bytes = await options.synthesize({
       text: spokenNarration(scene.narration),
       voice,
-      model: options.model,
+      model,
       signal: options.signal,
     });
     if (bytes.byteLength === 0) throw new ToolError(`场景 ${scene.id} 返回空音频`, "VIDEO_VOICE_EMPTY");
@@ -436,20 +447,64 @@ export async function generateVoice(project: string, options: {
   const updated = { ...plan, scenes };
   await Promise.all([
     writeFile(planPath, `${JSON.stringify(updated, null, 2)}\n`),
-    writeFile(join(project, "audio-meta.json"), `${JSON.stringify({ provider: "cosyvoice", model: options.model, voice, scenes: metaScenes }, null, 2)}\n`),
+    writeFile(join(project, "audio-meta.json"), `${JSON.stringify({ provider, model, voice, rate: VOICE_RATE, scenes: metaScenes }, null, 2)}\n`),
     writeFile(join(project, "index.html"), renderIndex(updated)),
     writeFile(join(project, "compositions", "captions.html"), renderCaptions(updated)),
     ...scenes.map((scene, index) => writeFile(join(project, "compositions", "frames", `${scene.id}.html`), renderFrame(updated, scene, index))),
   ]);
   return {
     status: "completed",
-    provider: "cosyvoice",
-    model: options.model,
+    provider,
+    model,
     voice,
     scenes: scenes.length,
     duration: Number(scenes.reduce((sum, scene) => sum + scene.duration, 0).toFixed(3)),
     audioMeta: join(project, "audio-meta.json"),
     next: "调用 video_render_hyperframes 生成有声 MP4。",
+  };
+}
+
+function routedVoiceSynthesizer(options: {
+  project: string;
+  shell: ShellProvider;
+  sandboxPolicy: SandboxExecutionPolicy;
+  credentialsPath?: string;
+}): VoiceSynthesizer {
+  const cosyvoice = dashscopeSynthesizer(options.credentialsPath);
+  return async (request) => request.voice === EDGE_TTS_VOICE
+    ? edgeTtsSynthesizer(options.project, options.shell, options.sandboxPolicy)(request)
+    : cosyvoice(request);
+}
+
+function edgeTtsSynthesizer(
+  project: string,
+  shell: ShellProvider,
+  sandboxPolicy: SandboxExecutionPolicy,
+): VoiceSynthesizer {
+  return async ({ text, voice, signal }) => {
+    const tempDir = join(project, ".hyperframes-tmp");
+    await mkdir(tempDir, { recursive: true });
+    const output = join(tempDir, `edge-tts-${randomUUID()}.mp3`);
+    try {
+      const result = await shell.run({
+        command: `edge-tts --voice ${shellQuote(voice)} --rate=${shellQuote(EDGE_TTS_RATE)} --volume=${shellQuote("+0%")} --text ${shellQuote(text)} --write-media ${shellQuote(output)}`,
+        cwd: project,
+        signal,
+        timeoutMs: 120_000,
+        maxBytes: 4_000,
+        sandboxPolicy,
+      });
+      if (result.exitCode !== 0 || result.timedOut || result.aborted) {
+        throw new ToolError(`Edge TTS 配音失败：${tail(result.stderr || result.stdout)}`, result.timedOut ? "VIDEO_VOICE_TIMEOUT" : "VIDEO_VOICE_REQUEST_FAILED");
+      }
+      const audio = await readFile(output).catch(() => undefined);
+      if (audio === undefined || audio.byteLength === 0) {
+        throw new ToolError("Edge TTS 未生成有效音频；请确认 edge-tts 命令可用", "VIDEO_VOICE_EMPTY");
+      }
+      return audio;
+    } finally {
+      await unlink(output).catch(() => undefined);
+    }
   };
 }
 
@@ -461,7 +516,7 @@ function dashscopeSynthesizer(credentialsPath?: string, fetcher: typeof fetch = 
       method: "POST",
       signal,
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model, input: { text, voice, format: "mp3", sample_rate: 24_000 } }),
+      body: JSON.stringify({ model, input: { text, voice, format: "mp3", sample_rate: 24_000, rate: VOICE_RATE } }),
     });
     const payload = await response.json().catch(() => undefined) as unknown;
     if (!response.ok || !isObject(payload)) {
