@@ -2017,12 +2017,26 @@ async function updateWorkspace() {
 
 tabChat.addEventListener("click", () => setTab("chat"));
 tabFlow.addEventListener("click", () => setTab("flow"));
-draft.addEventListener("input", () => {
+function resizeDraft() {
   draft.style.height = "auto";
   draft.style.height = `${Math.min(draft.scrollHeight, 240)}px`;
+}
+
+function isImeComposing(event) {
+  return event.isComposing || event.keyCode === 229;
+}
+
+draft.addEventListener("input", (event) => {
+  if (event.isComposing) return;
+  resizeDraft();
+  updateComposer();
+});
+draft.addEventListener("compositionend", () => {
+  resizeDraft();
   updateComposer();
 });
 draft.addEventListener("keydown", (event) => {
+  if (isImeComposing(event)) return;
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
     if (!send.disabled) composer.requestSubmit();
