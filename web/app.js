@@ -22,7 +22,9 @@ const draft = document.querySelector("#draft");
 const send = document.querySelector("#send");
 const stop = document.querySelector("#stop");
 const composerHint = document.querySelector("#composer-hint");
-const attachButton = document.querySelector(".attach-button");
+const creationActions = document.querySelectorAll("[data-creation]");
+const videoTopicDialog = document.querySelector("#video-topic-dialog");
+const customVideoTopic = document.querySelector("#custom-video-topic");
 const newSession = document.querySelector("#new-session");
 const clearSessions = document.querySelector("#clear-sessions");
 const addWorkspace = document.querySelector("#add-workspace");
@@ -1661,32 +1663,10 @@ function openWorkspaceMenu(anchor, root) {
   });
 }
 
-function openComposerAddMenu() {
-  document.querySelector(".composer-add-menu")?.remove();
-  const menu = document.createElement("div");
-  menu.className = "composer-add-menu";
-  const workspaceName = selectedWorkspace
-    ? (workspaceAliases[selectedWorkspace] ?? pathName(selectedWorkspace))
-    : "未分组";
-  menu.innerHTML = `
-    <button type="button" data-action="promo-video"><span>▷</span><span><strong>生成宣传视频</strong><small></small></span></button>
-    <button type="button" data-action="wechat-article"><span>文</span><span><strong>生成公众号文章</strong><small></small></span></button>`;
-  for (const subtitle of menu.querySelectorAll("small")) subtitle.textContent = `基于 ${workspaceName} 的源码生成`;
-  const rect = attachButton.getBoundingClientRect();
-  menu.style.left = `${rect.left}px`;
-  menu.style.bottom = `${window.innerHeight - rect.top + 8}px`;
-  document.body.append(menu);
-  const close = (event) => {
-    if (!menu.contains(event.target) && event.target !== attachButton) menu.remove();
-  };
-  setTimeout(() => document.addEventListener("click", close, { once: true }));
-  menu.addEventListener("click", (event) => {
-    const action = event.target.closest("button")?.dataset.action;
-    if (action !== "promo-video" && action !== "wechat-article") return;
-    menu.remove();
-    if (action === "promo-video") void startPromoVideo(selectedWorkspace);
-    else void startWechatArticle(selectedWorkspace);
-  });
+function openVideoTopicDialog() {
+  customVideoTopic.value = "";
+  videoTopicDialog.querySelector("input[name='video-topic']").checked = true;
+  videoTopicDialog.showModal();
 }
 
 async function deleteWorkspace(root) {
@@ -1808,7 +1788,7 @@ async function clearAllSessions() {
   }
 }
 
-async function startPromoVideo(root) {
+async function startPromoVideo(root, topic) {
   if (managingSessions) return;
   selectedWorkspace = root;
   sessionStatus.classList.remove("error");
@@ -1820,7 +1800,7 @@ async function startPromoVideo(root) {
     const session = await createSession(root);
     if (session === undefined) return;
     await loadSession(session.source, session.file);
-    await sendTurn(prompt.text);
+    await sendTurn(`${prompt.text}\n\n本次视频主题（用户已确认）：${topic}\n主题是本次选材与叙事的硬约束，但仍须通过项目主链路讲清楚，不得偏离为孤立功能介绍。`);
   } catch (err) {
     sessionStatus.textContent = err instanceof Error ? err.message : "无法开始生成宣传视频";
     sessionStatus.classList.add("error");
@@ -2049,14 +2029,22 @@ composer.addEventListener("submit", (event) => {
   if (isRunning()) void injectTurn(text);
   else void sendTurn(text);
 });
-attachButton.addEventListener("click", () => {
+for (const button of creationActions) button.addEventListener("click", () => {
   if (managingSessions) return;
-  const menu = document.querySelector(".composer-add-menu");
-  if (menu !== null) {
-    menu.remove();
-    return;
-  }
-  openComposerAddMenu();
+  if (button.dataset.creation === "promo-video") openVideoTopicDialog();
+  else void startWechatArticle(selectedWorkspace);
+});
+videoTopicDialog.querySelector(".topic-close").addEventListener("click", () => videoTopicDialog.close());
+videoTopicDialog.querySelector(".topic-cancel").addEventListener("click", () => videoTopicDialog.close());
+videoTopicDialog.addEventListener("click", (event) => {
+  if (event.target === videoTopicDialog) videoTopicDialog.close();
+});
+videoTopicDialog.querySelector("form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const selected = videoTopicDialog.querySelector("input[name='video-topic']:checked");
+  const topic = customVideoTopic.value.trim() || selected.value;
+  videoTopicDialog.close();
+  void startPromoVideo(selectedWorkspace, topic);
 });
 newSession.addEventListener("click", () => {
   void createSession().catch((err) => {
