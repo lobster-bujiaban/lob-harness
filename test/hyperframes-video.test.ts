@@ -211,3 +211,20 @@ test("创建工程直接写在 outputDir，不再套一层 slug", async () => {
   expect(await readFile(join(root, "videos", "video-plan.json"), "utf8")).toContain('"slug": "demo-agent"');
   await expect(stat(join(root, "videos", "demo-agent"))).rejects.toMatchObject({ code: "ENOENT" });
 });
+
+test("创建视频工具向模型完整声明方案约束", () => {
+  const registry = new ToolRegistry();
+  installHyperframesVideo(registry, {
+    root: "/workspace",
+    shell: { async run() { throw new Error("not called"); } },
+  });
+  const schema = registry.schemas().find((item) => item.name === "video_create_hyperframes");
+  const parameters = schema?.parameters as any;
+  const planSchema = parameters.properties.plan;
+  const sceneSchema = planSchema.properties.scenes.items;
+  const evidenceSchema = sceneSchema.properties.evidence.items;
+  expect(planSchema.required).toEqual(["slug", "projectName", "scenes"]);
+  expect(sceneSchema.required).toEqual(["id", "title", "narration", "duration"]);
+  expect(sceneSchema.properties.duration).toMatchObject({ minimum: 3, maximum: 120 });
+  expect(evidenceSchema.properties.kind.enum).toEqual(["fact", "boundary", "hypothetical"]);
+});

@@ -66,6 +66,62 @@ export type HyperframesPlan = {
   scenes: VideoScene[];
 };
 
+const EVIDENCE_SCHEMA = {
+  type: "object",
+  properties: {
+    file: { type: "string", minLength: 1, description: "相对 sourcePath 的真实源码文件路径" },
+    lineStart: { type: "integer", minimum: 1 },
+    lineEnd: { type: "integer", minimum: 1, description: "必须不小于 lineStart，且单条证据最多覆盖 40 行" },
+    claim: { type: "string", minLength: 1, description: "这段源码直接支持的技术结论" },
+    kind: { type: "string", enum: ["fact", "boundary", "hypothetical"], description: "事实、能力边界或假设" },
+  },
+  required: ["file", "lineStart", "lineEnd", "claim", "kind"],
+  additionalProperties: false,
+} as const;
+
+const SCENE_SCHEMA = {
+  type: "object",
+  properties: {
+    id: { type: "string", pattern: "^[a-z][a-z0-9-]*$", description: "场景内唯一的小写连字符 ID" },
+    title: { type: "string", minLength: 1 },
+    narration: { type: "string", minLength: 1 },
+    duration: { type: "number", minimum: 3, maximum: 120, description: "预估秒数；配音后会按真实音频时长重写" },
+    template: { type: "string", enum: ["hook", "flow", "compare", "points", "boundary"] },
+    eyebrow: { type: "string", minLength: 1 },
+    bullets: { type: "array", minItems: 1, maxItems: 5, items: { type: "string", minLength: 1 } },
+    evidence: { type: "array", minItems: 1, maxItems: 8, items: EVIDENCE_SCHEMA },
+    sourceLabel: { type: "string", minLength: 1 },
+    sourceExcerpt: { type: "string", minLength: 1 },
+  },
+  required: ["id", "title", "narration", "duration"],
+  additionalProperties: false,
+} as const;
+
+const VIDEO_PLAN_SCHEMA = {
+  type: "object",
+  properties: {
+    slug: { type: "string", pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$", description: "小写连字符格式" },
+    projectName: { type: "string", minLength: 1 },
+    projectIdentity: { type: "string", minLength: 1 },
+    sourcePath: { type: "string", minLength: 1, description: "通常为 ." },
+    logoPath: { type: "string", minLength: 1 },
+    requireNarration: { type: "boolean" },
+    audienceQuestion: { type: "string", minLength: 1 },
+    searchableTitle: { type: "string", minLength: 1 },
+    searchKeywords: { type: "array", minItems: 2, maxItems: 8, items: { type: "string", minLength: 1 } },
+    saveValue: { type: "array", minItems: 2, maxItems: 8, items: { type: "string", minLength: 1 } },
+    seriesNext: { type: "string", minLength: 1 },
+    aiDisclosure: { type: "boolean" },
+    episode: { type: "string", minLength: 1 },
+    accent: { type: "string", description: "CSS 十六进制颜色，例如 #ff6b35" },
+    background: { type: "string", description: "CSS 十六进制颜色，例如 #111111" },
+    foreground: { type: "string", description: "CSS 十六进制颜色，例如 #ffffff" },
+    scenes: { type: "array", minItems: 3, maxItems: 16, items: SCENE_SCHEMA, description: "总时长必须为 30～1200 秒" },
+  },
+  required: ["slug", "projectName", "scenes"],
+  additionalProperties: false,
+} as const;
+
 export function installHyperframesVideo(
   registry: ToolRegistry,
   options: {
@@ -110,7 +166,7 @@ export function installHyperframesVideo(
         type: "object",
         properties: {
           outputDir: { type: "string", description: "工作区内的工程目录，例如 videos；Hyperframes 工程直接写在该目录下，不再套一层 slug" },
-          plan: { type: "object", description: "当前开源仓库的宣传视频方案：slug、projectName、projectIdentity、sourcePath、搜索与收藏字段、scenes。用项目价值、核心能力、差异点、实现证据、适用人群和 GitHub 行动引导组织内容。技术事实的 evidence 必须含 file/lineStart/lineEnd/claim/kind。作者和 GitHub 地址由插件自动注入，Logo 从当前项目自动发现或由 logoPath 指定；禁止二维码。" },
+          plan: { ...VIDEO_PLAN_SCHEMA, description: "当前开源仓库的宣传视频方案。用项目价值、核心能力、差异点、实现证据、适用人群和 GitHub 行动引导组织内容。作者和 GitHub 地址由插件自动注入，Logo 从当前项目自动发现或由 logoPath 指定；禁止二维码。" },
         },
         required: ["outputDir", "plan"],
         additionalProperties: false,
@@ -708,7 +764,9 @@ function evidenceArray(value: unknown, label: string): SourceEvidence[] {
       throw new ToolError(`${label}[${index}] 行号无效或超过 40 行`, "VIDEO_PLAN_INVALID");
     }
     const kind = stringValue(raw.kind, `${label}[${index}].kind`) as SourceEvidence["kind"];
-    if (!["fact", "boundary", "hypothetical"].includes(kind)) throw new ToolError(`${label}[${index}].kind 无效`, "VIDEO_PLAN_INVALID");
+    if (!["fact", "boundary", "hypothetical"].includes(kind)) {
+      throw new ToolError(`${label}[${index}].kind 无效；可选值：fact、boundary、hypothetical`, "VIDEO_PLAN_INVALID");
+    }
     return {
       file: stringValue(raw.file, `${label}[${index}].file`),
       lineStart,
