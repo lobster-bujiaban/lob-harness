@@ -5,7 +5,6 @@ export type VisualScene = {
   title: string;
   narration: string;
   duration: number;
-  template?: FrameKind;
   eyebrow?: string;
   bullets?: string[];
   sourceLabel?: string;
@@ -47,10 +46,13 @@ export function spokenNarration(text: string): string {
 }
 
 export function resolveVisualTemplate(scene: VisualScene, index: number, total: number): FrameKind {
-  if (scene.template) return scene.template;
   if (index === 0) return "hook";
   if (index === total - 1) return "boundary";
-  return (["flow", "compare", "points"] as const)[(index - 1) % 3];
+  const meaning = `${scene.id} ${scene.title} ${scene.narration} ${(scene.bullets ?? []).join(" ")}`;
+  if (/前后|之前|之后|变化|替换|压缩|取舍|代价|对照|相比|before|after|versus|\bvs\b/iu.test(meaning)) return "compare";
+  if (/边界|限制|审批|沙箱|禁止|只允许|未知|失败|适用|boundary|limit|approval|sandbox/iu.test(meaning)) return "boundary";
+  if (/结论|总结|归纳|要点|原则|四件事|三件事|一句话|事件流|清单|principle|summary/iu.test(meaning)) return "points";
+  return "flow";
 }
 
 export function renderFrame(plan: VisualPlan, scene: VisualScene, index: number): string {
@@ -61,7 +63,7 @@ export function renderFrame(plan: VisualPlan, scene: VisualScene, index: number)
   const kicker = scene.eyebrow ?? (kind === "flow" && items.length >= 4 ? "GRAPH · 能回头" : KICKERS[kind]);
   const stamp = scene.sourceLabel === undefined ? "" : `<p class="${p}-stamp">${escapeHtml(scene.sourceLabel)}</p>`;
   const title = titleMarkup(scene.title, p);
-  const stage = renderStage(kind, p, items, duration, takeaway(scene, plan, index));
+  const stage = renderStage(kind, p, items, duration, takeaway(scene, plan, index), scene);
   const logo = plan.logoPath === undefined || index !== 0
     ? ""
     : `<img class="${p}-mark" src="${escapeHtml(plan.logoPath)}" alt="">`;
@@ -150,12 +152,19 @@ window.__timelines.captions=tl;
 
 type Stage = { html: string; css: string; motion: string; paper: boolean };
 
-function renderStage(kind: FrameKind, p: string, items: string[], duration: number, band: string): Stage {
+function renderStage(kind: FrameKind, p: string, items: string[], duration: number, band: string, scene: VisualScene): Stage {
   if (kind === "hook") return hookStage(p, items, duration, band);
   if (kind === "compare") return compareStage(p, items, duration, band);
   if (kind === "points") return principleStage(p, items, duration);
   if (kind === "boundary") return boundaryStage(p, items, duration, band);
-  return items.length >= 4 ? loopStage(p, items, duration) : pipelineStage(p, items, duration);
+  const meaning = `${scene.id} ${scene.title} ${scene.narration} ${items.join(" ")}`;
+  if (/还是|判断|分流|分派|路由|否则|空闲|运行中|branch|switch|router/iu.test(meaning)) {
+    return branchStage(p, items, duration, band);
+  }
+  if (/循环|回环|下一圈|写回|重试|心跳|恢复|loop|for\s*\{/iu.test(meaning)) {
+    return loopStage(p, items, duration);
+  }
+  return pipelineStage(p, items, duration, band);
 }
 
 function hookStage(p: string, items: string[], duration: number, band: string): Stage {
@@ -200,7 +209,7 @@ tl.fromTo("#${p}-band",{y:26,opacity:0,rotation:-1.1},{y:0,opacity:1,rotation:-0
   };
 }
 
-function pipelineStage(p: string, items: string[], duration: number): Stage {
+function pipelineStage(p: string, items: string[], duration: number, band: string): Stage {
   const nodes = items.slice(0, 4);
   while (nodes.length < 2) nodes.push("下一步");
   const nodeHtml = nodes.map((item, i) => `<div class="${p}-node ${p}-n${i + 1}"><p>${escapeHtml(shortLabel(item, 6))}</p></div>`).join("");
@@ -224,7 +233,7 @@ ${nodeCss}
     <div class="${p}-flow"><div class="${p}-flow-bg"></div><div id="${p}-fill" class="${p}-fill"></div></div>
     ${nodeHtml}
     <svg class="${p}-sketch" viewBox="0 0 240 36" preserveAspectRatio="none"><path id="${p}-draw" d="M4 22 C 48 6, 92 30, 138 12 S 208 30, 236 16" stroke-dasharray="260" stroke-dashoffset="260"></path></svg>
-    <p class="${p}-note">像一条流水线，状态一路流过去</p>
+    <p class="${p}-note">${escapeHtml(shortLabel(band, 22))}</p>
   </div>`,
     motion: `tl.fromTo("#${p}-panel",{y:40,opacity:0,rotation:.6},{y:0,opacity:1,rotation:.2,duration:.65,ease:"power3.out"},1.15);
 document.querySelectorAll(".${p}-node").forEach((n,i)=>{tl.fromTo(n,{scale:.7,opacity:0},{scale:1,opacity:1,duration:.35,ease:"back.out(1.6)"},2.1+i*.45)});
@@ -234,8 +243,41 @@ tl.fromTo(".${p}-note",{y:14,opacity:0},{y:0,opacity:1,duration:.45,ease:"power3
   };
 }
 
+function branchStage(p: string, items: string[], duration: number, band: string): Stage {
+  const root = shortLabel(items[0] ?? "输入", 8);
+  const left = shortLabel(items[1] ?? "路径 A", 9);
+  const right = shortLabel(items[2] ?? "路径 B", 9);
+  return {
+    paper: true,
+    css: `.${p}-panel{position:absolute;left:6cqw;width:88cqw;top:27cqh;height:47cqh;box-sizing:border-box;background:#141412;padding:3cqw;border-radius:8px 4px 11px 5px;box-shadow:1px 1px 0 #0891B2}
+.${p}-decision{position:absolute;left:35%;top:12%;width:30%;height:24%;display:flex;align-items:center;justify-content:center;box-sizing:border-box;background:#A5F3FC;border:.24cqw solid #0891B2;transform:rotate(-1deg)}
+.${p}-decision p,.${p}-branch p{margin:0;padding:.6cqw;font-family:"SimHei",sans-serif;font-size:2.2cqw;text-align:center;color:#141412}
+.${p}-branch{position:absolute;top:58%;width:34%;height:22%;display:flex;align-items:center;justify-content:center;box-sizing:border-box;background:#F6F6F2;border:.22cqw solid #A8A29E;border-radius:4px 10px 5px 8px}
+.${p}-a{left:8%;transform:rotate(-1.4deg)}.${p}-b{right:8%;transform:rotate(1.2deg)}
+.${p}-fork{position:absolute;left:20%;top:35%;width:60%;height:28%;overflow:visible}
+.${p}-fork path{fill:none;stroke:#67E8F9;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.${p}-yes,.${p}-no{position:absolute;top:48%;font-family:"Consola",monospace;font-size:1.3cqw;color:#67E8F9}.${p}-yes{left:20%}.${p}-no{right:20%}
+.${p}-note{position:absolute;left:5%;right:5%;bottom:5%;margin:0;font-family:"SimHei",sans-serif;font-size:2.6cqw;color:#F6F6F2;text-align:center}`,
+    html: `<div id="${p}-panel" class="clip ${p}-panel" data-start="0" data-duration="${duration}" data-track-index="4">
+    <div id="${p}-decision" class="${p}-decision"><p>${escapeHtml(root)}</p></div>
+    <svg class="${p}-fork" viewBox="0 0 220 110" preserveAspectRatio="none"><path id="${p}-draw" d="M110 4 L110 34 C110 48 42 42 42 72 L42 102 M110 34 C110 48 178 42 178 72 L178 102" stroke-dasharray="360" stroke-dashoffset="360"/></svg>
+    <span class="${p}-yes">YES</span><span class="${p}-no">NO</span>
+    <div id="${p}-a" class="${p}-branch ${p}-a"><p>${escapeHtml(left)}</p></div>
+    <div id="${p}-b" class="${p}-branch ${p}-b"><p>${escapeHtml(right)}</p></div>
+    <p class="${p}-note">${escapeHtml(shortLabel(band, 22))}</p>
+  </div>`,
+    motion: `tl.fromTo("#${p}-panel",{scale:.94,opacity:0,rotation:-.8},{scale:1,opacity:1,rotation:.15,duration:.6,ease:"power3.out"},1.1);
+tl.fromTo("#${p}-decision",{scale:.6,opacity:0},{scale:1,opacity:1,duration:.45,ease:"back.out(1.7)"},1.8);
+tl.fromTo("#${p}-draw",{strokeDashoffset:360},{strokeDashoffset:0,duration:1.1,ease:"power2.inOut"},2.35);
+tl.fromTo("#${p}-a",{x:-24,opacity:0},{x:0,opacity:1,duration:.45,ease:"power2.out"},3.35);
+tl.fromTo("#${p}-b",{x:24,opacity:0},{x:0,opacity:1,duration:.45,ease:"power2.out"},3.65);
+tl.fromTo(".${p}-note",{y:12,opacity:0},{y:0,opacity:1,duration:.4,ease:"power2.out"},${late(duration, 3.5)});`,
+  };
+}
+
 function loopStage(p: string, items: string[], duration: number): Stage {
   const nodes = items.slice(0, 4).map((item) => shortLabel(item, 6));
+  while (nodes.length < 4) nodes.push(["处理", "写回", "继续"][nodes.length - 1] ?? "继续");
   const nodeHtml = nodes.map((item, i) => `<div class="${p}-node ${p}-n${i + 1}"><p>${escapeHtml(item)}</p></div>`).join("");
   return {
     paper: true,

@@ -31,7 +31,6 @@ export type VideoScene = {
   title: string;
   narration: string;
   duration: number;
-  template?: "hook" | "flow" | "compare" | "points" | "boundary";
   eyebrow?: string;
   bullets?: string[];
   audioPath?: string;
@@ -90,7 +89,6 @@ const SCENE_SCHEMA = {
     title: { type: "string", minLength: 1 },
     narration: { type: "string", minLength: 1 },
     duration: { type: "number", minimum: 3, maximum: 120, description: "预估秒数；配音后会按真实音频时长重写" },
-    template: { type: "string", enum: ["hook", "flow", "compare", "points", "boundary"] },
     eyebrow: { type: "string", minLength: 1 },
     bullets: { type: "array", minItems: 1, maxItems: 5, items: { type: "string", minLength: 1 } },
     evidence: { type: "array", minItems: 1, maxItems: 8, items: EVIDENCE_SCHEMA },
@@ -596,14 +594,11 @@ function parsePlan(value: unknown): HyperframesPlan {
     if (!Number.isFinite(duration) || duration < 3 || duration > 120) throw new ToolError(`scene ${id}.duration 必须是 3～120 秒`, "VIDEO_PLAN_INVALID");
     const bullets = raw.bullets === undefined ? undefined : stringArray(raw.bullets, `scene ${id}.bullets`, 5);
     const evidence = raw.evidence === undefined ? undefined : evidenceArray(raw.evidence, `scene ${id}.evidence`);
-    const template = raw.template === undefined ? undefined : stringValue(raw.template, `scene ${id}.template`) as VideoScene["template"];
-    if (template !== undefined && !["hook", "flow", "compare", "points", "boundary"].includes(template)) throw new ToolError(`scene ${id}.template 无效`, "VIDEO_PLAN_INVALID");
     return {
       id,
       title: stringValue(raw.title, `scene ${id}.title`),
       narration: stringValue(raw.narration, `scene ${id}.narration`),
       duration,
-      ...(template === undefined ? {} : { template }),
       ...(raw.eyebrow === undefined ? {} : { eyebrow: stringValue(raw.eyebrow, `scene ${id}.eyebrow`) }),
       ...(bullets === undefined ? {} : { bullets }),
       ...(raw.audioPath === undefined ? {} : { audioPath: stringValue(raw.audioPath, `scene ${id}.audioPath`) }),
@@ -677,7 +672,7 @@ function renderPublishCopy(plan: HyperframesPlan): string {
 function contentChecks(plan: HyperframesPlan) {
   const firstSceneText = `${plan.scenes[0]?.title ?? ""} ${plan.scenes[0]?.narration ?? ""}`.toLowerCase();
   const evidenceFiles = new Set(plan.scenes.flatMap((scene) => scene.evidence ?? []).map((item) => item.file));
-  const technicalScenes = plan.scenes.filter((scene) => scene.template !== "hook" && scene !== plan.scenes.at(-1));
+  const technicalScenes = plan.scenes.slice(1, -1);
   const evidencedTechnicalScenes = technicalScenes.filter((scene) => (scene.evidence?.length ?? 0) > 0);
   return {
     searchableQuestion: Boolean(plan.audienceQuestion && plan.searchableTitle),

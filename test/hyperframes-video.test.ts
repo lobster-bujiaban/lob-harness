@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { analyzeSource, createHyperframesProject, generateVoice, installHyperframesVideo, type HyperframesPlan } from "../src/hyperframes-video.ts";
+import { renderFrame, resolveVisualTemplate } from "../src/hyperframes-visual.ts";
 import type { ShellProvider } from "../src/shell-service.ts";
 import { ToolRegistry } from "../src/tools.ts";
 
@@ -21,15 +22,15 @@ const plan: HyperframesPlan = {
   saveValue: ["恢复链路", "适用边界"],
   seriesNext: "工具调用如何恢复",
   scenes: [
-    { id: "hook", title: "Demo Agent 为什么会中断？", narration: "源码在 GitHub 的 lobster-bujiaban 斜杠 demo-agent。", duration: 10, template: "hook" },
+    { id: "hook", title: "Demo Agent 为什么会中断？", narration: "源码在 GitHub 的 lobster-bujiaban 斜杠 demo-agent。", duration: 10 },
     {
-      id: "flow", title: "事件留下事实", narration: "再看主链路。", duration: 10, template: "flow", bullets: ["写入事件", "重新投影"],
+      id: "flow", title: "事件留下事实", narration: "再看主链路。", duration: 10, bullets: ["写入事件", "重新投影"],
       evidence: [
         { file: "agent-service.ts", lineStart: 1, lineEnd: 1, claim: "Agent 由服务启动", kind: "fact" },
         { file: "session-store.ts", lineStart: 1, lineEnd: 1, claim: "会话状态写入事件", kind: "fact" },
       ],
     },
-    { id: "boundary", title: "适用边界", narration: "最后记住边界。", duration: 10, template: "boundary" },
+    { id: "boundary", title: "适用边界", narration: "最后记住边界。", duration: 10 },
   ],
 };
 
@@ -92,6 +93,15 @@ test("结构化方案生成完整 Hyperframes 工程", async () => {
   expect(boundary).toContain("v hot");
   expect(boundary).toContain("f03-oval");
   expect(result.contentChecks).toMatchObject({ keywords: true, saveValue: true, seriesContinuation: true, creatorVisible: true, qrCodeAbsent: true });
+});
+
+test("画面关系由内容推断，不依赖模板字段", () => {
+  const branch = { id: "route", title: "空闲还是运行中？", narration: "先判断状态再分流。", duration: 10, bullets: ["检查状态", "开启回合", "转向回合"] };
+  const loop = { id: "writeback", title: "结果写回历史", narration: "下一圈继续读取工具结果。", duration: 10, bullets: ["工具结果", "写回历史"] };
+  const compare = { id: "compact", title: "压缩前后", narration: "摘要替换旧历史。", duration: 10, bullets: ["旧历史", "交接摘要"] };
+  expect(resolveVisualTemplate(compare, 1, 4)).toBe("compare");
+  expect(renderFrame({ projectName: "Demo", scenes: [branch] }, branch, 1)).toContain('class="f02-fork"');
+  expect(renderFrame({ projectName: "Demo", scenes: [loop] }, loop, 1)).toContain('id="f02-loop"');
 });
 
 test("配音按真实时长回写工程并持久化音色", async () => {
@@ -227,5 +237,6 @@ test("创建视频工具向模型完整声明方案约束", () => {
   expect(planSchema.required).toEqual(["slug", "projectName", "scenes"]);
   expect(sceneSchema.required).toEqual(["id", "title", "narration", "duration"]);
   expect(sceneSchema.properties.duration).toMatchObject({ minimum: 3, maximum: 120 });
+  expect(sceneSchema.properties.template).toBeUndefined();
   expect(evidenceSchema.properties.kind.enum).toEqual(["fact", "boundary", "hypothetical"]);
 });
