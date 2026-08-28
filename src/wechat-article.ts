@@ -4,12 +4,23 @@ import { ToolError, type ToolRegistry } from "./tools.ts";
 import { renderArticleVisuals, type VisualPng } from "./wechat-article-visuals.ts";
 
 type Item = { title: string; text: string };
+const LAYOUTS = ["origin", "mechanism", "contrast", "teardown", "diary"] as const;
+type Layout = (typeof LAYOUTS)[number];
+type Block =
+  | { kind: "opening" | "journey" | "mechanism" | "comparison" | "quote" | "closing" }
+  | { kind: "section"; index: number };
+const BANNED_HEADINGS = ["开源手记", "这条路，不是从 Agent 开始的", "我真正想改变的，不是模型", "写在最后"];
 type ArticlePlan = {
   title: string;
   subtitle: string;
   projectName: string;
   repositoryUrl: string;
   logoPath?: string;
+  kicker: string;
+  layout: Layout;
+  journeyTitle: string;
+  comparisonTitle: string;
+  closingTitle: string;
   opening: string[];
   journey: Item[];
   mechanism: { title: string; steps: Item[] };
@@ -57,6 +68,7 @@ export function installWechatArticle(registry: ToolRegistry, options: { root: st
         publishCopy: publishFile,
         figures: visuals.map((visual) => join(output, visual.file)),
         bytes: Buffer.byteLength(html),
+        layout: plan.layout,
         journeyNodes: plan.journey.length,
         flowSteps: plan.mechanism.steps.length,
         visualModules: 4,
@@ -80,20 +92,25 @@ function itemSchema(title: string, text: string) {
 function planSchema() {
   return {
     type: "object" as const,
-    description: "结构化文章。字段名必须用 title、sections[].title、closing.{summary,question}、publish.titles/abstract/shareCopy、evidence[].source。",
+    description: "结构化文章。字段名必须用 title、kicker、layout、journeyTitle、comparisonTitle、closingTitle、sections[].title、closing.{summary,question}、publish.titles/abstract/shareCopy、evidence[].source。",
     properties: {
       title: { type: "string", description: "12～60 字" },
       subtitle: { type: "string", description: "20～160 字" },
       projectName: { type: "string", description: "2～60 字项目名" },
       repositoryUrl: { type: "string", description: "https 仓库地址" },
       logoPath: { type: "string", description: "可选，工作区内 Logo 路径" },
-      opening: { type: "array", items: { type: "string" }, description: "2～3 段开篇，每段 50～260 字" },
-      journey: { type: "array", items: itemSchema("2～32 字节点名", "8～180 字"), description: "3～5 个职业时间线节点" },
+      kicker: { type: "string", description: "2～24 字栏头，必须本篇新写；不要用开源手记，也不要重复项目名" },
+      layout: { type: "string", description: "origin / mechanism / contrast / teardown / diary，按内容选，不要默认 origin" },
+      journeyTitle: { type: "string", description: "3～36 字时间线标题，不要用套话" },
+      comparisonTitle: { type: "string", description: "3～36 字对照标题，来自本项目两种做法" },
+      closingTitle: { type: "string", description: "2～24 字收束标题，不要用写在最后" },
+      opening: { type: "array", items: { type: "string" }, description: "1～6 段开篇，每段 20～600 字，长短要有变化" },
+      journey: { type: "array", items: itemSchema("2～32 字节点名", "8～240 字"), description: "3～5 个时间线节点" },
       mechanism: {
         type: "object",
         properties: {
           title: { type: "string", description: "4～40 字，字段名是 title" },
-          steps: { type: "array", items: itemSchema("2～32 字步骤名", "8～180 字"), description: "3～6 步" },
+          steps: { type: "array", items: itemSchema("2～32 字步骤名", "8～240 字"), description: "3～6 步" },
         },
         required: ["title", "steps"],
       },
@@ -109,24 +126,24 @@ function planSchema() {
       },
       sections: {
         type: "array",
-        description: "2～4 节；每节用 title，不要用 heading",
+        description: "2～6 节；每节用 title，不要用 heading",
         items: {
           type: "object",
           properties: {
             title: { type: "string", description: "3～36 字，字段名是 title" },
-            paragraphs: { type: "array", items: { type: "string" }, description: "1～3 段" },
-            takeaway: { type: "string", description: "可选，10～120 字" },
+            paragraphs: { type: "array", items: { type: "string" }, description: "1～5 段，每段 20～800 字，长短允许变化" },
+            takeaway: { type: "string", description: "可选，10～160 字" },
           },
           required: ["title", "paragraphs"],
         },
       },
-      quote: { type: "string", description: "20～180 字金句" },
+      quote: { type: "string", description: "20～240 字金句" },
       closing: {
         type: "object",
         description: "必须是对象 { summary, question }，不要用字符串数组",
         properties: {
-          summary: { type: "string", description: "30～260 字" },
-          question: { type: "string", description: "10～140 字提问" },
+          summary: { type: "string", description: "30～420 字" },
+          question: { type: "string", description: "10～160 字提问" },
         },
         required: ["summary", "question"],
       },
@@ -154,7 +171,7 @@ function planSchema() {
         },
       },
     },
-    required: ["title", "subtitle", "projectName", "repositoryUrl", "opening", "journey", "mechanism", "comparison", "sections", "quote", "closing", "publish", "evidence"],
+    required: ["title", "subtitle", "projectName", "repositoryUrl", "kicker", "layout", "journeyTitle", "comparisonTitle", "closingTitle", "opening", "journey", "mechanism", "comparison", "sections", "quote", "closing", "publish", "evidence"],
   };
 }
 
@@ -170,14 +187,28 @@ function normalizePlan(raw: Record<string, unknown>): Record<string, unknown> {
   const closing = Array.isArray(raw.closing)
     ? { summary: raw.closing[0], question: raw.closing[1] ?? "欢迎去 GitHub 跑一遍这个项目。" }
     : raw.closing;
+  const closingRecord = asRecord(closing);
+  const mergedComparison = comparison === undefined ? raw.comparison : {
+    beforeTitle: "常见做法",
+    afterTitle: "这个项目",
+    ...comparison,
+  };
+  const comparisonRecord = asRecord(mergedComparison);
+  const projectName = typeof raw.projectName === "string" && raw.projectName.trim() ? raw.projectName.trim() : "开源";
+  const beforeTitle = typeof comparisonRecord?.beforeTitle === "string" ? comparisonRecord.beforeTitle.trim() : "常见做法";
+  const afterTitle = typeof comparisonRecord?.afterTitle === "string" ? comparisonRecord.afterTitle.trim() : "这个项目";
+  const firstJourney = Array.isArray(raw.journey) ? asRecord(raw.journey[0]) : undefined;
+  const journeySeed = typeof firstJourney?.title === "string" ? firstJourney.title.trim() : "";
+  const question = typeof closingRecord?.question === "string" ? closingRecord.question.trim() : "";
   return {
     ...raw,
+    layout: raw.layout ?? defaultLayout(projectName),
+    kicker: raw.kicker ?? (journeySeed || "阅读笔记"),
+    journeyTitle: raw.journeyTitle ?? (journeySeed ? `从${journeySeed}说起` : "时间怎么走到这里"),
+    comparisonTitle: raw.comparisonTitle ?? clipHeading(`${beforeTitle}对照${afterTitle}`, 36),
+    closingTitle: raw.closingTitle ?? clipHeading(question || "还可以怎么用", 24),
     mechanism: mechanism === undefined ? raw.mechanism : { title: "一次请求如何走完", ...mechanism },
-    comparison: comparison === undefined ? raw.comparison : {
-      beforeTitle: "常见做法",
-      afterTitle: "这个项目",
-      ...comparison,
-    },
+    comparison: mergedComparison,
     sections: Array.isArray(raw.sections)
       ? raw.sections.map((entry) => {
         const row = asRecord(entry);
@@ -219,17 +250,23 @@ function parsePlan(raw: Record<string, unknown>): ArticlePlan {
     projectName: take(() => text(raw.projectName, "projectName", 2, 60), "项目"),
     repositoryUrl: take(() => httpUrl(raw.repositoryUrl), "https://github.com/example/repo"),
     ...(logoPath ? { logoPath } : {}),
-    opening: take(() => strings(raw.opening, "opening", 2, 3, 50, 260), []),
+    kicker: take(() => text(raw.kicker, "kicker", 2, 24), "开源"),
+    layout: parseLayout(raw.layout, planProjectName(raw.projectName)),
+    journeyTitle: take(() => text(raw.journeyTitle, "journeyTitle", 3, 36), "时间怎么走到这里"),
+    comparisonTitle: take(() => text(raw.comparisonTitle, "comparisonTitle", 3, 36), "两种做法"),
+    closingTitle: take(() => text(raw.closingTitle, "closingTitle", 2, 24), "还可以怎么用"),
+    opening: take(() => strings(raw.opening, "opening", 1, 6, 20, 600), []),
     journey: take(() => items(raw.journey, "journey", 3, 5), []),
     mechanism: parseMechanism(raw.mechanism, take),
     comparison: parseComparison(raw.comparison, take),
     sections: parseSections(raw.sections, take),
-    quote: take(() => text(raw.quote, "quote", 20, 180), "先把发生过的事实记清楚。"),
+    quote: take(() => text(raw.quote, "quote", 20, 240), "先把发生过的事实记清楚。"),
     closing: parseClosing(raw.closing, take),
     publish: parsePublish(raw.publish, take),
     evidence: parseEvidence(raw.evidence, take),
   };
   if (errors.length > 0) throw invalid(errors.join("；"));
+  assertFreshHeadings(plan);
   const articleChars = JSON.stringify({
     opening: plan.opening,
     journey: plan.journey,
@@ -239,7 +276,7 @@ function parsePlan(raw: Record<string, unknown>): ArticlePlan {
     quote: plan.quote,
     closing: plan.closing,
   }).length;
-  if (articleChars < 1_200 || articleChars > 7_000) throw invalid(`正文内容必须保持精炼，结构化字符数应为 1200～7000，当前 ${articleChars}`);
+  if (articleChars < 1_200 || articleChars > 16_000) throw invalid(`正文内容必须保持精炼，结构化字符数应为 1200～16000，当前 ${articleChars}`);
   return plan;
 }
 
@@ -264,16 +301,16 @@ function parseComparison(value: unknown, take: Take): ArticlePlan["comparison"] 
 }
 
 function parseSections(value: unknown, take: Take): ArticlePlan["sections"] {
-  if (!Array.isArray(value) || value.length < 2 || value.length > 4) {
-    take(() => { throw invalid("sections 必须是 2～4 节"); }, undefined);
+  if (!Array.isArray(value) || value.length < 2 || value.length > 6) {
+    take(() => { throw invalid("sections 必须是 2～6 节"); }, undefined);
     return [];
   }
   return value.map((entry, index) => {
     const raw = take(() => record(entry, `sections[${index}]`), {});
     return {
       title: take(() => text(raw.title, `sections[${index}].title`, 3, 36), "小节"),
-      paragraphs: take(() => strings(raw.paragraphs, `sections[${index}].paragraphs`, 1, 3, 40, 420), []),
-      ...(raw.takeaway === undefined ? {} : { takeaway: take(() => text(raw.takeaway, `sections[${index}].takeaway`, 10, 120), "") }),
+      paragraphs: take(() => strings(raw.paragraphs, `sections[${index}].paragraphs`, 1, 5, 20, 800), []),
+      ...(raw.takeaway === undefined ? {} : { takeaway: take(() => text(raw.takeaway, `sections[${index}].takeaway`, 10, 160), "") }),
     };
   });
 }
@@ -281,8 +318,8 @@ function parseSections(value: unknown, take: Take): ArticlePlan["sections"] {
 function parseClosing(value: unknown, take: Take): ArticlePlan["closing"] {
   const raw = take(() => record(value, "closing"), {});
   return {
-    summary: take(() => text(raw.summary, "closing.summary", 30, 260), "先把发生过的事实记清楚，再谈智能。"),
-    question: take(() => text(raw.question, "closing.question", 10, 140), "欢迎去 GitHub 跑一遍这个项目。"),
+    summary: take(() => text(raw.summary, "closing.summary", 30, 420), "先把发生过的事实记清楚，再谈智能。"),
+    question: take(() => text(raw.question, "closing.question", 10, 160), "欢迎去 GitHub 跑一遍这个项目。"),
   };
 }
 
@@ -329,6 +366,43 @@ function renderSection(section: ArticlePlan["sections"][number], h2: string, par
   return `<h2 style="${h2}">${escapeHtml(section.title)}</h2>${body}${takeaway}`;
 }
 
+function layoutBlocks(plan: ArticlePlan): Block[] {
+  const sections = plan.sections.map((_, index) => ({ kind: "section" as const, index }));
+  const s0 = sections[0]!;
+  const tail = sections.slice(1);
+  switch (plan.layout) {
+    case "mechanism":
+      return [{ kind: "opening" }, { kind: "mechanism" }, s0, { kind: "comparison" }, { kind: "quote" }, ...tail, { kind: "journey" }, { kind: "closing" }];
+    case "contrast":
+      return [{ kind: "opening" }, { kind: "comparison" }, s0, { kind: "mechanism" }, { kind: "quote" }, ...tail, { kind: "journey" }, { kind: "closing" }];
+    case "teardown":
+      return [{ kind: "opening" }, s0, { kind: "mechanism" }, ...tail.slice(0, 1), { kind: "comparison" }, { kind: "quote" }, ...tail.slice(1), { kind: "journey" }, { kind: "closing" }];
+    case "diary":
+      return [{ kind: "opening" }, { kind: "journey" }, s0, { kind: "quote" }, ...tail.slice(0, 1), { kind: "mechanism" }, { kind: "comparison" }, ...tail.slice(1), { kind: "closing" }];
+    default:
+      return [{ kind: "opening" }, { kind: "journey" }, s0, { kind: "quote" }, { kind: "mechanism" }, { kind: "comparison" }, ...tail, { kind: "closing" }];
+  }
+}
+
+function renderBlock(block: Block, plan: ArticlePlan, visuals: VisualPng[], h2: string, paragraph: string): string {
+  switch (block.kind) {
+    case "opening":
+      return plan.opening.map((value) => `<p style="${paragraph}">${richText(value)}</p>`).join("");
+    case "journey":
+      return `<h2 style="${h2}">${escapeHtml(plan.journeyTitle)}</h2>${mpFigure(visuals[0], plan.journeyTitle)}`;
+    case "mechanism":
+      return `<h2 style="${h2}">${escapeHtml(plan.mechanism.title)}</h2>${mpFigure(visuals[1], plan.mechanism.title)}`;
+    case "comparison":
+      return `<h2 style="${h2}">${escapeHtml(plan.comparisonTitle)}</h2>${mpFigure(visuals[2], plan.comparisonTitle)}`;
+    case "quote":
+      return mpBlock(`<p style="margin:0;color:#ffffff;font-size:20px;font-weight:700;line-height:1.6">${escapeHtml(plan.quote)}</p>`, "margin:30px 0;padding:24px 22px;background-color:#172f5f");
+    case "section":
+      return renderSection(plan.sections[block.index]!, h2, paragraph);
+    case "closing":
+      return mpBlock(`<p style="margin:0;color:#172033;font-size:21px;font-weight:700">${escapeHtml(plan.closingTitle)}</p><p style="${paragraph};margin-top:12px">${richText(plan.closing.summary)}</p><p style="margin:16px 0;color:#a24427;font-weight:700">${escapeHtml(plan.closing.question)}</p><p style="margin:16px 0 0;color:#172f5f;word-break:break-all">${escapeHtml(plan.repositoryUrl)}</p>`, "margin-top:48px;padding:26px;background-color:#fff3ed");
+  }
+}
+
 function renderArticle(plan: ArticlePlan, visuals: VisualPng[], logo?: string): string {
   const paper = "max-width:720px;margin:0 auto;background:#fffdf8;color:#222;padding:38px 34px 64px;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;font-size:17px;line-height:1.9";
   const h2 = "margin:46px 0 18px;font-size:24px;line-height:1.4;color:#172033";
@@ -338,23 +412,14 @@ function renderArticle(plan: ArticlePlan, visuals: VisualPng[], logo?: string): 
   const titles = plan.publish.titles.map((title) => `<li style="margin:8px 0">${escapeHtml(title)}</li>`).join("");
   const tags = plan.publish.tags.map((tag) => `<span style="display:inline-block;margin:3px;padding:5px 9px;border-radius:999px;background:#eef2f8;color:#294878">${escapeHtml(tag)}</span>`).join("");
   const copyScript = "const b=document.getElementById('copy'),a=document.getElementById('article');function done(t){const o=b.textContent;b.textContent=t;setTimeout(()=>b.textContent=o,1800)}function payload(){return '<section style=\"font-size:17px;line-height:1.9;color:#222;font-family:-apple-system,BlinkMacSystemFont,PingFang SC,Microsoft YaHei,sans-serif\">'+a.innerHTML+'</section>'}function fallback(){const s=getSelection(),r=document.createRange();r.selectNodeContents(a);s.removeAllRanges();s.addRange(r);const ok=document.execCommand('copy');s.removeAllRanges();return ok}b.onclick=async()=>{try{if(navigator.clipboard&&window.ClipboardItem){await navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([payload()],{type:'text/html'}),'text/plain':new Blob([a.innerText],{type:'text/plain'})})]);done('已复制')}else done(fallback()?'已复制':'请手动复制')}catch{done(fallback()?'已复制':'复制失败')}}";
+  const body = layoutBlocks(plan).map((block) => renderBlock(block, plan, visuals, h2, paragraph)).join("\n");
   return `<!doctype html>
 <html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(plan.title)}</title><style>*{box-sizing:border-box}body{margin:0;background:#e9edf3;color:#222}.shell{display:grid;grid-template-columns:minmax(0,780px) 320px;gap:24px;max-width:1160px;margin:28px auto;padding:0 18px}.assistant{position:sticky;top:72px;align-self:start;max-height:calc(100vh - 92px);overflow:auto;background:#fff;border-radius:18px;padding:20px;box-shadow:0 12px 35px #1d2b4817}.copy{position:fixed;right:24px;top:18px;z-index:10;border:0;border-radius:999px;padding:11px 18px;background:#f15b36;color:#fff;font-weight:700;box-shadow:0 8px 22px #f15b3645;cursor:pointer}@media(max-width:980px){.shell{display:block;max-width:760px}.assistant{position:static;margin-top:18px;max-height:none}.copy{right:14px;top:12px}}@media(max-width:560px){.shell{padding:0;margin:0}.paper{padding:28px 19px!important}}</style></head>
 <body><button id="copy" class="copy" type="button">一键复制正文</button><main class="shell"><div class="paper" style="${paper}">
-<header style="margin-bottom:28px">${logo === undefined ? "" : `<section style="float:left;margin:0 14px 0 0">${logoHtml}</section>`}<section style="${logo === undefined ? "" : "margin-left:72px"}"><p style="margin:0;color:#f15b36;font-size:13px;font-weight:800;letter-spacing:.12em">开源手记 · ${escapeHtml(plan.projectName)}</p><p style="margin:4px 0 0;color:#8a8f99;font-size:13px">虾哥不加班</p></section>${logo === undefined ? "" : `<section style="clear:both;height:0;line-height:0;font-size:0">&nbsp;</section>`}<h1 style="margin:18px 0 0;color:#121b2d;font-size:36px;line-height:1.28;letter-spacing:-.02em">${escapeHtml(plan.title)}</h1></header>
+<header style="margin-bottom:28px">${logo === undefined ? "" : `<section style="float:left;margin:0 14px 0 0">${logoHtml}</section>`}<section style="${logo === undefined ? "" : "margin-left:72px"}"><p style="margin:0;color:#f15b36;font-size:13px;font-weight:800;letter-spacing:.12em">${escapeHtml(plan.kicker)} · ${escapeHtml(plan.projectName)}</p><p style="margin:4px 0 0;color:#8a8f99;font-size:13px">虾哥不加班</p></section>${logo === undefined ? "" : `<section style="clear:both;height:0;line-height:0;font-size:0">&nbsp;</section>`}<h1 style="margin:18px 0 0;color:#121b2d;font-size:36px;line-height:1.28;letter-spacing:-.02em">${escapeHtml(plan.title)}</h1></header>
 <article id="article">
 ${mpBlock(`<p style="margin:0;color:#596170;font-size:16px;line-height:1.75">${escapeHtml(plan.subtitle)}</p>`, "margin:0 0 18px;padding:16px 18px;background-color:#f1f4f8")}
-${plan.opening.map((value) => `<p style="${paragraph}">${richText(value)}</p>`).join("")}
-<h2 style="${h2}">这条路，不是从 Agent 开始的</h2>
-${mpFigure(visuals[0], "职业路径")}
-${plan.sections.slice(0, 1).map((section) => renderSection(section, h2, paragraph)).join("")}
-${mpBlock(`<p style="margin:0;color:#ffffff;font-size:20px;font-weight:700;line-height:1.6">${escapeHtml(plan.quote)}</p>`, "margin:30px 0;padding:24px 22px;background-color:#172f5f")}
-<h2 style="${h2}">${escapeHtml(plan.mechanism.title)}</h2>
-${mpFigure(visuals[1], plan.mechanism.title)}
-<h2 style="${h2}">我真正想改变的，不是模型</h2>
-${mpFigure(visuals[2], "前后对照")}
-${plan.sections.slice(1).map((section) => renderSection(section, h2, paragraph)).join("")}
-${mpBlock(`<p style="margin:0;color:#172033;font-size:21px;font-weight:700">写在最后</p><p style="${paragraph};margin-top:12px">${richText(plan.closing.summary)}</p><p style="margin:16px 0;color:#a24427;font-weight:700">${escapeHtml(plan.closing.question)}</p><p style="margin:16px 0 0;color:#172f5f;word-break:break-all">${escapeHtml(plan.repositoryUrl)}</p>`, "margin-top:48px;padding:26px;background-color:#fff3ed")}
+${body}
 </article></div><aside class="assistant" data-no-copy><h2 style="margin:0 0 14px;color:#172033">发布助手</h2><p style="margin:0 0 12px;color:#8a5a2b;font-size:13px">标题和作者填公众号后台，不要贴进正文。路径、流程、对照已是图片，粘贴后请确认三张图都在。</p><strong>备选标题</strong><ol style="padding-left:20px;color:#555f6d">${titles}</ol><strong>摘要</strong><p style="color:#555f6d;line-height:1.65">${escapeHtml(plan.publish.abstract)}</p><strong>标签</strong><div style="margin:8px 0 16px">${tags}</div><strong>朋友圈文案</strong><p style="color:#555f6d;line-height:1.65">${escapeHtml(plan.publish.shareCopy)}</p><details><summary style="cursor:pointer;font-weight:700">封面提示词</summary><p style="color:#697080;line-height:1.6;white-space:pre-wrap">${escapeHtml(plan.publish.coverPrompt)}</p></details><details style="margin-top:12px"><summary style="cursor:pointer;font-weight:700">事实证据</summary><ul style="padding-left:18px;color:#555f6d">${evidence}</ul></details></aside></main>
 <script>${copyScript}</script></body></html>\n`;
 }
@@ -379,7 +444,7 @@ function items(value: unknown, name: string, min: number, max: number): Item[] {
   if (!Array.isArray(value) || value.length < min || value.length > max) throw invalid(`${name} 必须是 ${min}～${max} 项`);
   return value.map((entry, index) => {
     const raw = record(entry, `${name}[${index}]`);
-    return { title: text(raw.title, `${name}[${index}].title`, 2, 32), text: text(raw.text, `${name}[${index}].text`, 8, 180) };
+    return { title: text(raw.title, `${name}[${index}].title`, 2, 32), text: text(raw.text, `${name}[${index}].text`, 8, 240) };
   });
 }
 
@@ -416,3 +481,31 @@ function resolveInside(root: string, path: string): string {
 }
 function escapeHtml(value: string): string { return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;"); }
 function invalid(message: string): ToolError { return new ToolError(message, "WECHAT_ARTICLE_INVALID"); }
+function planProjectName(value: unknown): string {
+  return typeof value === "string" && value.trim() ? value.trim() : "开源";
+}
+function defaultLayout(projectName: string): Layout {
+  let hash = 0;
+  for (const char of projectName) hash = (hash * 33 + (char.codePointAt(0) ?? 0)) >>> 0;
+  return LAYOUTS[hash % LAYOUTS.length]!;
+}
+function parseLayout(value: unknown, projectName: string): Layout {
+  if (typeof value === "string" && (LAYOUTS as readonly string[]).includes(value)) return value as Layout;
+  return defaultLayout(projectName);
+}
+function clipHeading(value: string, max: number): string {
+  const text = value.trim();
+  return text.length <= max ? text : text.slice(0, max);
+}
+function assertFreshHeadings(plan: ArticlePlan): void {
+  const fields: Array<[string, string]> = [
+    ["kicker", plan.kicker],
+    ["journeyTitle", plan.journeyTitle],
+    ["comparisonTitle", plan.comparisonTitle],
+    ["closingTitle", plan.closingTitle],
+  ];
+  for (const [name, value] of fields) {
+    const banned = BANNED_HEADINGS.find((item) => value.includes(item));
+    if (banned !== undefined) throw invalid(`${name} 不能使用套话「${banned}」`);
+  }
+}

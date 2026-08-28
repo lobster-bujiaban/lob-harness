@@ -17,6 +17,11 @@ test("结构化方案渲染成带图解、发布助手和一键复制的单文�
       subtitle: "从长期交付回到一线代码，我想补上的不是另一个聊天框，而是失败之后还能继续的运行时。",
       projectName: "LOB Harness",
       repositoryUrl: "https://github.com/lobster-bujiaban/lob-harness",
+      kicker: "对照一份运行时",
+      layout: "contrast",
+      journeyTitle: "判断是怎么叠上去的",
+      comparisonTitle: "聊天记录撑不住现场",
+      closingTitle: "还能继续的那截",
       opening: [paragraph, paragraph],
       journey: [
         { title: "长期交付", text: "先学会对边界和失败负责。" },
@@ -45,7 +50,7 @@ test("结构化方案渲染成带图解、发布助手和一键复制的单文�
       closing: { summary: paragraph, question: "你更在意 Agent 的能力上限，还是失败后的恢复能力？" },
       publish: {
         titles: ["为什么我要重新理解 Agent 运行时", "事件日志如何让 Agent 重新开始", "从长期交付到写下开源运行骨架"],
-        abstract: "一篇关于 Agent 运行时、事件日志与职业选择的开源手记。",
+        abstract: "一篇关于 Agent 运行时、事件日志与职业选择的记录。",
         tags: ["Agent", "开源", "AI应用架构"],
         shareCopy: "把多年交付里的边界意识，写进一个可以回放和恢复的 Agent 骨架。",
         coverPrompt: "纸面手绘风格，以事件日志到状态投影的流程图为主体，使用项目 Logo，不要机器人和二维码。",
@@ -58,11 +63,20 @@ test("结构化方案渲染成带图解、发布助手和一键复制的单文�
     },
   }, new AbortController().signal);
 
-  expect(JSON.parse(result.output)).toMatchObject({ status: "created", visualModules: 4 });
+  expect(JSON.parse(result.output)).toMatchObject({ status: "created", visualModules: 4, layout: "contrast" });
   const html = await readFile(join(root, "wechat", "article.html"), "utf8");
   const publishCopy = await readFile(join(root, "wechat", "发布文案.md"), "utf8");
   expect(html).toContain("一键复制正文");
-  expect(html).toContain("这条路，不是从 Agent 开始的");
+  expect(html).toContain("对照一份运行时");
+  expect(html).toContain("判断是怎么叠上去的");
+  expect(html).toContain("聊天记录撑不住现场");
+  expect(html).toContain("还能继续的那截");
+  expect(html.indexOf("聊天记录撑不住现场")).toBeLessThan(html.indexOf("一次请求如何留下可恢复的轨迹"));
+  expect(html.indexOf("一次请求如何留下可恢复的轨迹")).toBeLessThan(html.indexOf("判断是怎么叠上去的"));
+  expect(html).not.toContain("开源手记");
+  expect(html).not.toContain("这条路，不是从 Agent 开始的");
+  expect(html).not.toContain("我真正想改变的，不是模型");
+  expect(html).not.toContain("写在最后");
   expect(html).toContain("发布助手");
   expect(html).toContain("ClipboardItem");
   expect(html).toContain("text/html");
@@ -138,6 +152,12 @@ test("兼容常见错字段名，一次收齐全部校验错误", async () => {
     },
   }, new AbortController().signal);
   expect(aliased.isError).toBe(false);
+  const aliasedHtml = await readFile(join(root, "wechat", "article.html"), "utf8");
+  expect(aliasedHtml).toContain("从长期交付说起");
+  expect(aliasedHtml).toContain("常见做法对照这个项目");
+  expect(aliasedHtml).not.toContain("这条路，不是从 Agent 开始的");
+  expect(aliasedHtml).not.toContain("我真正想改变的，不是模型");
+  expect(aliasedHtml).not.toContain("写在最后");
 
   const bundled = await registry.execute("wechat_create_article", {
     outputDir: "wechat-bad",
