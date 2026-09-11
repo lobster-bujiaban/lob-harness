@@ -1,0 +1,260 @@
+import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect, test } from "vitest";
+import { analyzeSource, createHyperframesProject, generateVoice, installHyperframesVideo, type HyperframesPlan } from "../src/hyperframes-video.ts";
+import { buildCaptionCues, renderFrame, resolveVisualTemplate } from "../src/hyperframes-visual.ts";
+import type { ShellProvider } from "../src/shell-service.ts";
+import { ToolRegistry } from "../src/tools.ts";
+
+const plan: HyperframesPlan = {
+  slug: "demo-agent",
+  projectName: "Demo Agent",
+  projectIdentity: "Demo Agent 是一个使用事件日志恢复运行状态的示例 Agent 框架。",
+  sourcePath: ".",
+  creatorName: "虾哥不加班",
+  repositoryUrl: "https://github.com/lobster-bujiaban/demo-agent",
+  logoPath: "web/lobster-logo.png",
+  requireNarration: true,
+  audienceQuestion: "Agent 中断后为什么还能继续？",
+  searchableTitle: "Agent 中断恢复原理：事件日志与状态投影",
+  searchKeywords: ["Agent 原理", "断点恢复"],
+  saveValue: ["恢复链路", "适用边界"],
+  seriesNext: "工具调用如何恢复",
+  scenes: [
+    { id: "hook", title: "Demo Agent 为什么会中断？", narration: "源码在 GitHub 的 lobster-bujiaban 斜杠 demo-agent。", duration: 10 },
+    {
+      id: "flow", title: "事件留下事实", narration: "再看主链路。", duration: 10, bullets: ["写入事件", "重新投影"],
+      evidence: [
+        { file: "agent-service.ts", lineStart: 1, lineEnd: 1, claim: "Agent 由服务启动", kind: "fact" },
+        { file: "session-store.ts", lineStart: 1, lineEnd: 1, claim: "会话状态写入事件", kind: "fact" },
+      ],
+    },
+    { id: "boundary", title: "适用边界", narration: "最后记住边界。", duration: 10 },
+  ],
+};
+
+async function prepareProject(root: string): Promise<void> {
+  await mkdir(join(root, "web"), { recursive: true });
+  await writeFile(join(root, "web", "lobster-logo.png"), new Uint8Array([137, 80, 78, 71]));
+  await writeFile(join(root, "agent-service.ts"), "export class AgentService {}\n");
+  await writeFile(join(root, "session-store.ts"), "export class SessionStore {}\n");
+}
+
+test("源码分析返回有界摘要，不扫描依赖目录", async () => {
+  const root = await mkdtemp(join(tmpdir(), "hyperframes-source-"));
+  await writeFile(join(root, "README.md"), "# Demo\nAgent event runtime");
+  await writeFile(join(root, "agent-service.ts"), "export class AgentService { run() {} }");
+  const digest = await analyzeSource(root, new AbortController().signal);
+  expect(digest.project).toBe(root.split("/").at(-1));
+  expect(digest.scannedFiles).toBe(2);
+  expect(digest.evidence).toHaveLength(1);
+});
+
+test("结构化方案生成完整 Hyperframes 工程", async () => {
+  const root = await mkdtemp(join(tmpdir(), "hyperframes-project-"));
+  await prepareProject(root);
+  const output = join(root, "video");
+  const result = await createHyperframesProject(root, output, plan, new AbortController().signal);
+  expect(result).toMatchObject({ status: "created", scenes: 3, duration: 30 });
+  expect(JSON.parse(await readFile(join(output, "package.json"), "utf8")).scripts.render)
+    .toContain("renders/demo-agent.mp4");
+  expect(JSON.parse(await readFile(join(output, "package.json"), "utf8")).scripts.render)
+    .toContain("loudnorm=I=-16:TP=-1.5:LRA=11");
+  const hook = await readFile(join(output, "compositions", "frames", "hook.html"), "utf8");
+  expect(hook).toContain('class="clip f01-head"');
+  expect(hook).toContain('font-family:"Georgia"');
+  expect(hook).toContain('class="f01-arrow"');
+  expect(hook).toContain("MAIN CHAIN");
+  expect(hook).toContain('src="assets/brand/project-logo.png"');
+  expect(hook).not.toContain("../../assets");
+  expect(hook).toContain("assets/vendor/gsap.min.js");
+  expect(hook).not.toContain("template-hook");
+  expect(hook).not.toContain('class="clip f-head"');
+  const captions = await readFile(join(output, "compositions", "captions.html"), "utf8");
+  expect(captions).toContain("lobster-bujiaban/demo-agent");
+  expect(captions).not.toContain("斜杠");
+  expect(captions).toContain("bottom:8.5cqh");
+  expect(await readFile(join(output, "assets", "vendor", "gsap.min.js"), "utf8")).toContain("gsap");
+  const index = await readFile(join(output, "index.html"), "utf8");
+  expect(index).toContain('data-width="1080"');
+  expect(index).toContain("data-no-timeline");
+  const copy = await readFile(join(output, "发布文案.md"), "utf8");
+  expect(copy).toContain("#Agent原理");
+  expect(copy).toContain("Agent 中断恢复原理：事件日志与状态投影。");
+  expect(copy).toContain("lobster-bujiaban/demo-agent");
+  expect(copy).toContain("## 封面提示词");
+  expect(copy).toContain("3:4，1080×1440");
+  expect(copy).not.toContain("封面，9:16");
+  expect(copy).toContain("使用当前项目 Logo（assets/brand/project-logo.png）");
+  expect(copy).toContain("恢复链路、适用边界");
+  expect(copy).not.toContain("https://github.com/");
+  expect(copy.match(/#[^\s#]+/gu)?.length).toBeLessThanOrEqual(5);
+  const flow = await readFile(join(output, "compositions", "frames", "flow.html"), "utf8");
+  expect(flow).toContain("agent-service.ts · L1–1");
+  expect(flow).toContain("id=\"f02-fill\"");
+  expect(flow).not.toContain("WRONG PATH");
+  const boundary = await readFile(join(output, "compositions", "frames", "boundary.html"), "utf8");
+  expect(boundary).toContain("v hot");
+  expect(boundary).toContain("f03-oval");
+  expect(result.contentChecks).toMatchObject({ keywords: true, saveValue: true, seriesContinuation: true, creatorVisible: true, qrCodeAbsent: true });
+});
+
+test("画面关系由内容推断，不依赖模板字段", () => {
+  const branch = { id: "route", title: "空闲还是运行中？", narration: "先判断状态再分流。", duration: 10, bullets: ["检查状态", "开启回合", "转向回合"] };
+  const loop = { id: "writeback", title: "结果写回历史", narration: "下一圈继续读取工具结果。", duration: 10, bullets: ["工具结果", "写回历史"] };
+  const compare = { id: "compact", title: "压缩前后", narration: "摘要替换旧历史。", duration: 10, bullets: ["旧历史", "交接摘要"] };
+  expect(resolveVisualTemplate(compare, 1, 4)).toBe("compare");
+  expect(resolveVisualTemplate({ id: "step", title: "状态变化", narration: "历史和工具一起交给模型。", duration: 10, bullets: ["历史", "工具", "模型"] }, 1, 4)).toBe("flow");
+  expect(renderFrame({ projectName: "Demo", scenes: [branch] }, branch, 1)).toContain('class="f02-fork"');
+  expect(renderFrame({ projectName: "Demo", scenes: [loop] }, loop, 1)).toContain('id="f02-loop"');
+});
+
+test("字幕按短句切分并覆盖完整场景时长", () => {
+  const cues = buildCaptionCues({
+    projectName: "Demo",
+    scenes: [{ id: "flow", title: "主链", narration: "先记录用户输入，再捕获上下文，把历史和工具一起交给模型。模型可以回答，也可以调用工具。", duration: 12 }],
+  });
+  expect(cues.length).toBeGreaterThan(2);
+  expect(cues.every((cue) => Array.from(cue.text).length <= 20)).toBe(true);
+  expect(cues[0]?.start).toBe(0);
+  expect(cues.at(-1)?.end).toBe(12);
+});
+
+test("配音按真实时长回写工程并持久化音色", async () => {
+  const root = await mkdtemp(join(tmpdir(), "hyperframes-voice-"));
+  await prepareProject(root);
+  const output = join(root, "video");
+  await createHyperframesProject(root, output, plan, new AbortController().signal);
+  const shell: ShellProvider = {
+    async run() {
+      return { exitCode: 0, signal: null, stdout: "9.65\n", stderr: "", truncated: false, timedOut: false, aborted: false };
+    },
+  };
+  const spoken: string[] = [];
+  const result = await generateVoice(output, {
+    shell,
+    signal: new AbortController().signal,
+    voices: ["longanyang"],
+    model: "cosyvoice-v3-flash",
+    synthesize: async ({ text }) => {
+      spoken.push(text);
+      return new Uint8Array([1, 2, 3]);
+    },
+  });
+  expect(spoken[0]).toContain("lobster bujiaban demo agent");
+  expect(spoken[0]).not.toMatch(/[/\-_]|斜杠|减号/u);
+  expect(result).toMatchObject({ status: "completed", voice: "longanyang", scenes: 3, duration: 30 });
+  expect(JSON.parse(await readFile(join(output, "audio-meta.json"), "utf8"))).toMatchObject({
+    provider: "cosyvoice",
+    voice: "longanyang",
+    rate: 1.25,
+  });
+  expect(JSON.parse(await readFile(join(output, "video-plan.json"), "utf8")).scenes[0]).toMatchObject({
+    duration: 10,
+    audioPath: "assets/voice/01.mp3",
+  });
+  expect(await readFile(join(output, "index.html"), "utf8")).toContain('id="audio-01"');
+  expect(await readFile(join(output, "assets", "voice", "01.mp3"))).toEqual(Buffer.from([1, 2, 3]));
+});
+
+test("配音无需审批即可执行", async () => {
+  const root = await mkdtemp(join(tmpdir(), "hyperframes-voice-no-approval-"));
+  await prepareProject(root);
+  const output = join(root, "video");
+  await createHyperframesProject(root, output, plan, new AbortController().signal);
+  const registry = new ToolRegistry();
+  const policies: unknown[] = [];
+  installHyperframesVideo(registry, {
+    root,
+    shell: {
+      async run(request) {
+        policies.push(request.sandboxPolicy);
+        return { exitCode: 0, signal: null, stdout: "9.65\n", stderr: "", truncated: false, timedOut: false, aborted: false };
+      },
+    },
+    synthesizeVoice: async () => new Uint8Array([1, 2, 3]),
+  });
+  const result = await registry.execute("video_generate_voice", { projectDir: "video" }, new AbortController().signal);
+  expect(result).toMatchObject({ isError: false });
+  expect(JSON.parse(result.output)).toMatchObject({ status: "completed", scenes: 3 });
+  expect(policies).toEqual(Array(3).fill({ mode: "danger-full-access", workspaceRoot: root }));
+});
+
+test("渲染以无沙箱权限执行，并把 npm 缓存放在工程内", async () => {
+  const root = await mkdtemp(join(tmpdir(), "hyperframes-render-"));
+  await prepareProject(root);
+  const output = join(root, "video");
+  await createHyperframesProject(root, output, plan, new AbortController().signal);
+  await generateVoice(output, {
+    shell: {
+      async run() {
+        return { exitCode: 0, signal: null, stdout: "9.65\n", stderr: "", truncated: false, timedOut: false, aborted: false };
+      },
+    },
+    signal: new AbortController().signal,
+    voices: ["longanyang"],
+    model: "cosyvoice-v3-flash",
+    synthesize: async () => new Uint8Array([1, 2, 3]),
+  });
+  await writeFile(join(output, "renders", "demo-agent.mp4"), "mp4");
+  const calls: { command: string; sandboxPolicy?: unknown }[] = [];
+  const registry = new ToolRegistry();
+  installHyperframesVideo(registry, {
+    root,
+    shell: {
+      async run(request) {
+        calls.push({ command: request.command, sandboxPolicy: request.sandboxPolicy });
+        return { exitCode: 0, signal: null, stdout: "ok\n", stderr: "", truncated: false, timedOut: false, aborted: false };
+      },
+    },
+  });
+  const result = await registry.execute("video_render_hyperframes", { projectDir: "video" }, new AbortController().signal);
+  expect(result).toMatchObject({ isError: false });
+  expect(calls).toHaveLength(1);
+  expect(calls[0]?.sandboxPolicy).toEqual({ mode: "danger-full-access", workspaceRoot: root });
+  expect(calls[0]?.command).toContain(`${output}/.npm-cache`);
+  expect(calls[0]?.command).toContain(`${output}/.hyperframes-tmp`);
+});
+
+test("创建工程直接写在 outputDir，不再套一层 slug", async () => {
+  const root = await mkdtemp(join(tmpdir(), "hyperframes-flat-"));
+  await prepareProject(root);
+  await writeFile(join(root, "package.json"), JSON.stringify({
+    name: "demo-agent",
+    repository: "https://github.com/lobster-bujiaban/demo-agent",
+  }));
+  const registry = new ToolRegistry();
+  installHyperframesVideo(registry, {
+    root,
+    shell: {
+      async run() {
+        return { exitCode: 0, signal: null, stdout: "ok\n", stderr: "", truncated: false, timedOut: false, aborted: false };
+      },
+    },
+  });
+  const result = await registry.execute("video_create_hyperframes", { outputDir: "videos", plan }, new AbortController().signal);
+  expect(result).toMatchObject({ isError: false });
+  expect(JSON.parse(result.output)).toMatchObject({ status: "created", projectDir: join(root, "videos") });
+  expect(await readFile(join(root, "videos", "video-plan.json"), "utf8")).toContain('"slug": "demo-agent"');
+  await expect(stat(join(root, "videos", "demo-agent"))).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+test("创建视频工具向模型完整声明方案约束", () => {
+  const registry = new ToolRegistry();
+  installHyperframesVideo(registry, {
+    root: "/workspace",
+    shell: { async run() { throw new Error("not called"); } },
+  });
+  const schema = registry.schemas().find((item) => item.name === "video_create_hyperframes");
+  const parameters = schema?.parameters as any;
+  const planSchema = parameters.properties.plan;
+  const sceneSchema = planSchema.properties.scenes.items;
+  const evidenceSchema = sceneSchema.properties.evidence.items;
+  expect(planSchema.required).toEqual(["slug", "projectName", "scenes"]);
+  expect(planSchema.properties.searchableTitle).toMatchObject({ maxLength: 30 });
+  expect(sceneSchema.required).toEqual(["id", "title", "narration", "duration"]);
+  expect(sceneSchema.properties.duration).toMatchObject({ minimum: 3, maximum: 120 });
+  expect(sceneSchema.properties.template).toBeUndefined();
+  expect(evidenceSchema.properties.kind.enum).toEqual(["fact", "boundary", "hypothetical"]);
+});
